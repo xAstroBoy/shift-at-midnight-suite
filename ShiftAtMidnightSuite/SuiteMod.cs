@@ -21,7 +21,7 @@ namespace ShiftAtMidnightSuite
     /// </remarks>
     public sealed class SuiteMod : ISuitePlugin
     {
-        internal const string Version = "1.0.2";
+        internal const string Version = "1.0.3";
         private const string HarmonyId = "com.xastroboy.shiftatmidnightsuite.plugin";
 
         private IPluginHost _host;
@@ -59,9 +59,9 @@ namespace ShiftAtMidnightSuite
         private MelonPreferences_Category _cfg;
         private MelonPreferences_Entry<bool> _pGunCase, _pMulCust, _pMulEvent, _pMulNuisance, _pMulDoppel, _pVerbose, _pWeaponWall, _pNoRake, _pRefresh, _pNoHuntEnt, _pNoHunt, _pReviews, _pSkipRead, _pAutoBag, _pUnbagged, _pClearLeftovers, _pSelfCheckout, _pFreezeClock, _pDetector, _pRadar, _pEvidence, _pBadge, _pProfiler,
                                           _pPatience, _pHappy, _pHonestStock, _pInstantTask, _pAutoFuel, _pKillExtras, _pBright,
-                                          _pSkipCountdown, _pSkipBriefing, _pFastEod, _pVentsDontKick, _pNoHints, _pStamina, _pGod, _pMoney, _pAmmo, _pFreezeItems,
+                                          _pSkipCountdown, _pSkipBriefing, _pFastEod, _pVentsDontKick, _pNoHints, _pEndlessNight, _pStamina, _pGod, _pMoney, _pAmmo, _pFreezeItems,
                                           _pCleanSpills, _pCleanMop, _pCleanTrash, _pAutoStock, _pStockCrate, _pGrenadeFlamer, _pSilenceBells, _pNoBarriers, _pNoFences, _pNoRoof, _pAutoUnlock, _pHumanShield, _pNoFog, _pWoundFlee;
-        private MelonPreferences_Entry<int> _pCustFactor, _pEventFactor, _pMaxSlots, _pNuisanceFactor, _pDoppelCount;
+        private MelonPreferences_Entry<int> _pCustFactor, _pEventFactor, _pMaxSlots, _pNuisanceFactor, _pDoppelCount, _pEndlessTopUp;
         private MelonPreferences_Entry<float> _pEodSpeed;
         private MelonPreferences_Entry<float> _pPatienceFactor, _pBrightBoost, _pSpeedMul, _pJumpMul, _pNoclipSpeed,
                                                  _pGrenadeRate, _pGrenadeForce;
@@ -162,6 +162,8 @@ namespace ShiftAtMidnightSuite
                 _pEodSpeed = Entry("EndOfDaySpeed", 4f, "How much faster the end-of-day report runs");
                 _pVentsDontKick = Entry("VentsDontKick", true, "Vents stop throwing you out for staying in them");
                 _pNoHints = Entry("AutoDismissHints", true, "Block the HUD hint popups entirely");
+                _pEndlessNight = Entry("EndlessNight", false, "The shift clock never runs out; call the bus when you want to leave");
+                _pEndlessTopUp = Entry("EndlessTopUpMinutes", 10, "Minutes the clock is wound back to when it runs low");
 
                 // Everything below used to live only in memory, so a hot reload - or just restarting
                 // the game - quietly turned it all back off again.
@@ -257,6 +259,8 @@ namespace ShiftAtMidnightSuite
                 Comfort.EndOfDaySpeed = Mathf.Clamp(_pEodSpeed.Value, 1f, 10f);
                 Comfort.VentsDontKick = _pVentsDontKick.Value;
                 Comfort.AutoDismissHints = _pNoHints.Value;
+                World.EndlessNight = _pEndlessNight.Value;
+                World.EndlessTopUpMinutes = Mathf.Clamp(_pEndlessTopUp.Value, 1, 60);
 
                 Player.InfiniteStamina = _pStamina.Value;
                 Player.GodMode = _pGod.Value;
@@ -353,6 +357,8 @@ namespace ShiftAtMidnightSuite
                 _pEodSpeed.Value = Comfort.EndOfDaySpeed;
                 _pVentsDontKick.Value = Comfort.VentsDontKick;
                 _pNoHints.Value = Comfort.AutoDismissHints;
+                _pEndlessNight.Value = World.EndlessNight;
+                _pEndlessTopUp.Value = World.EndlessTopUpMinutes;
 
                 _pStamina.Value = Player.InfiniteStamina;
                 _pGod.Value = Player.GodMode;

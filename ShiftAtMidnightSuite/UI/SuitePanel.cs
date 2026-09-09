@@ -970,8 +970,17 @@ namespace ShiftAtMidnightSuite.UI
                         delegate (bool v) { StartHuntPatch.AutoUnstick = v; });
 
                     Header(root, "SHIFT CLOCK");
-                    Toggle(root, "Freeze Shift Clock", "The countdown never runs out; the day lasts as long as you want.",
-                        delegate { return w.FreezeClock; }, delegate (bool v) { w.FreezeClock = v; });
+                    Toggle(root, "Endless Night", "The night never ends on its own - no \"your shift is done\", no store shutting down around you. The clock keeps running and winds back before it can expire, so customers and events keep coming. Call The Bus when you actually want to leave.",
+                        delegate { return w.EndlessNight; },
+                        delegate (bool v) { w.EndlessNight = v; if (v) w.FreezeClock = false; });
+                    Stepper(root, "Wind Back To", "How much time the clock is given each time it runs low.",
+                        delegate { return w.EndlessTopUpMinutes + " min"; },
+                        delegate (int dir) { w.EndlessTopUpMinutes = Mathf.Clamp(w.EndlessTopUpMinutes + dir, 1, 60); }, 1, 5);
+                    Button(root, "CALL THE BUS", "Brings the end-of-day bus in now. Board it and the night ends the usual way.",
+                        delegate { w.CallBus(); }, true);
+                    Toggle(root, "Freeze Shift Clock", "Pins the countdown where it stands. Endless Night is usually what you want instead - a frozen clock also freezes the generation that is scheduled against it.",
+                        delegate { return w.FreezeClock; },
+                        delegate (bool v) { w.FreezeClock = v; if (v) w.EndlessNight = false; });
                     Button(root, "+ 5 Minutes", "", delegate { w.AddSeconds(300); }, true);
                     Button(root, "+ 15 Minutes", "", delegate { w.AddSeconds(900); }, true);
                     Button(root, "- 1 Minute", "", delegate { w.AddSeconds(-60); }, true);

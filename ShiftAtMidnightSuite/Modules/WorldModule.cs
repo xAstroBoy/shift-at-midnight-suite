@@ -817,6 +817,67 @@ namespace ShiftAtMidnightSuite.Modules
             catch (Exception ex) { Log.Ex("add seconds", ex); }
         }
 
+        /// <summary>
+        /// The night never runs out, but the bus is still yours to call.
+        ///
+        /// "Your shift is done, head to the bus" is what the clock reaching zero buys you: the store
+        /// stops generating, the customers walk out, and you are stood in a finished night waiting to
+        /// be allowed to leave. Freezing the clock stops that, but it also stops time moving, and the
+        /// night's generation is scheduled against the clock - a frozen night is just as dead, only
+        /// quieter.
+        ///
+        /// So let the clock run and top it back up before it can expire. Time keeps moving, the store
+        /// keeps generating, and the shift simply never reaches its end. Nothing here blocks the day
+        /// from completing: boarding the bus still ends the night exactly as it always did, which is
+        /// the whole point of leaving that path alone. Use Call The Bus when you want to go.
+        /// </summary>
+        internal bool EndlessNight;
+
+        /// <summary>Minutes the clock is wound back to when it runs low.</summary>
+        internal int EndlessTopUpMinutes = 10;
+
+        internal int NightsExtended;
+        private const int EndlessFloorSeconds = 60;
+
+        private void TickEndlessNight()
+        {
+            StoreManager sm = null;
+            try { sm = StoreManager.Instance; } catch { }
+            if (!Net.Alive(sm)) return;
+
+            try
+            {
+                if (sm.secondsLeft < EndlessFloorSeconds)
+                {
+                    sm.secondsLeft = Mathf.Clamp(EndlessTopUpMinutes, 1, 60) * 60;
+                    NightsExtended++;
+                    LastResult = "Night extended (" + NightsExtended + ")";
+                    Log.Msg("Endless night: clock wound back to " + Fmt(sm.secondsLeft) + ".");
+                }
+
+                // The shift ending is also what closes the doors to new shoppers. Keeping this on
+                // means a long night stays a busy one rather than an empty store with a clock.
+                if (!sm.allowedToSpawnBrowsingNPCs) sm.allowedToSpawnBrowsingNPCs = true;
+            }
+            catch (Exception ex) { Log.Debug("endless night: " + ex.Message); }
+        }
+
+        /// <summary>Brings the end-of-day bus in on demand. Board it and the night ends normally.</summary>
+        internal void CallBus()
+        {
+            EventManager em = null;
+            try { em = EventManager.Instance; } catch { }
+            if (!Net.Alive(em)) { LastResult = "EventManager not ready"; Log.Warn(LastResult + "."); return; }
+
+            try
+            {
+                em.Rpc_EODBus();
+                LastResult = "Bus called";
+                Log.Msg(LastResult + " - board it when you are ready to end the night.");
+            }
+            catch (Exception ex) { Log.Ex("call bus", ex); LastResult = "Could not call the bus"; }
+        }
+
         private void TickClock()
         {
             if (!FreezeClock) { _frozenAt = -1; return; }
@@ -1024,10 +1085,13 @@ namespace ShiftAtMidnightSuite.Modules
                 if (WeaponWallAlwaysOpen) OpenWeaponWall(false);
             }
 
-            if (FreezeClock && now >= _nextClockTick)
+            if ((FreezeClock || EndlessNight) && now >= _nextClockTick)
             {
                 _nextClockTick = now + 0.25f;
-                TickClock();
+                // Freezing pins the clock; endless lets it run and winds it back. Doing both would
+                // pin it at the floor and never wind it, so the explicit freeze wins and says so.
+                if (FreezeClock) TickClock();
+                else TickEndlessNight();
             }
 
             if (PerfectReviews.Enabled && now >= _nextReviewTick)

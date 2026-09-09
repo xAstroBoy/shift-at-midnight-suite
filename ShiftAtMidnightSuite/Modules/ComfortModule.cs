@@ -219,6 +219,7 @@ namespace ShiftAtMidnightSuite.Modules
             _heldZeroedId = 0;
             _eodReport = null;
             _relayered.Clear();
+            _revealedNpcs.Clear();
             _ghostLayer = -2;
             // Never carry a raised clock across a scene load - the report that justified it is gone.
             RestoreEndOfDay();
@@ -1546,19 +1547,25 @@ namespace ShiftAtMidnightSuite.Modules
         /// </summary>
         private int _ghostLayer = -2;
         private int _visibleLayer = -2;
+        private int _humanLayer = -2;
 
         private void ResolveLayers()
         {
             if (_ghostLayer != -2) return;
             _ghostLayer = LayerMask.NameToLayer("GhostCamera");
             _visibleLayer = LayerMask.NameToLayer("NPC");
-            if (_ghostLayer < 0 || _visibleLayer < 0)
+            _humanLayer = LayerMask.NameToLayer("NPCNotVisibleInGhostCamera");
+            if (_ghostLayer < 0 || _visibleLayer < 0 || _humanLayer < 0)
                 Log.Warn("Anomaly reveal: expected layers not found (GhostCamera=" + _ghostLayer +
-                         ", NPC=" + _visibleLayer + "). Reveal disabled.");
+                         ", NPC=" + _visibleLayer + ", NPCNotVisibleInGhostCamera=" + _humanLayer +
+                         "). Reveal disabled.");
         }
 
         /// <summary>Transforms moved off the GhostCamera layer, with the layer they came from.</summary>
         private readonly List<KeyValuePair<Transform, int>> _relayered = new List<KeyValuePair<Transform, int>>();
+
+        /// <summary>Doppelgangers already dealt with, so the swap is never applied to one twice.</summary>
+        private readonly HashSet<int> _revealedNpcs = new HashSet<int>();
 
         internal int AnomaliesRevealed;
 
@@ -1702,6 +1709,14 @@ namespace ShiftAtMidnightSuite.Modules
                     try { doppel = b.isDoppelganger; } catch { }
                     if (!doppel) continue;
 
+                    // Once each, and this is not optional. The swap parks the human body on
+                    // GhostCamera to hide it, and GhostCamera is precisely what the first loop looks
+                    // for - so a second pass over the same doppelganger would promote the body it had
+                    // just hidden straight back into view.
+                    int id;
+                    try { id = b.GetInstanceID(); } catch { continue; }
+                    if (!_revealedNpcs.Add(id)) continue;
+
                     // The jumpscare creature stays where it is.
                     bool scare = false;
                     try { scare = b.GetComponentInChildren<JumpscarePlayer>(true) != null; } catch { }
@@ -1714,6 +1729,7 @@ namespace ShiftAtMidnightSuite.Modules
                     try { parts = b.GetComponentsInChildren<Transform>(true); } catch { }
                     if (parts == null) continue;
 
+                    // Bring the creature rig into view.
                     for (int k = 0; k < parts.Length; k++)
                     {
                         Transform t = parts[k];
@@ -1724,6 +1740,32 @@ namespace ShiftAtMidnightSuite.Modules
                             _relayered.Add(new KeyValuePair<Transform, int>(t, t.gameObject.layer));
                             t.gameObject.layer = _visibleLayer;
                             AnomaliesRevealed++;
+                        }
+                        catch { }
+                    }
+
+                    // And take the human body out of it, which is the half that was missing. The lens
+                    // does not draw the person and the creature at once - the layer names say so
+                    // outright, NPCNotVisibleInGhostCamera being exactly what the ghost feed leaves
+                    // out - so showing both just stacks one inside the other.
+                    //
+                    // Only the skinned body mesh is hidden. The patience circle and its bar sit on the
+                    // same layer and are sprites, not skin; hiding those would take the customer's UI
+                    // away along with their face, which is not what looking through a lens does.
+                    Renderer[] rends = null;
+                    try { rends = b.GetComponentsInChildren<Renderer>(true); } catch { }
+                    if (rends == null) continue;
+
+                    for (int k = 0; k < rends.Length; k++)
+                    {
+                        Renderer r = rends[k];
+                        if (r == null) continue;
+                        try
+                        {
+                            if (r.gameObject.layer != _humanLayer) continue;
+                            if (r.TryCast<SkinnedMeshRenderer>() == null) continue;
+                            _relayered.Add(new KeyValuePair<Transform, int>(r.transform, r.gameObject.layer));
+                            r.gameObject.layer = _ghostLayer;   // a layer the player camera does not draw
                         }
                         catch { }
                     }
@@ -1742,6 +1784,7 @@ namespace ShiftAtMidnightSuite.Modules
                 try { t.gameObject.layer = _relayered[i].Value; } catch { }
             }
             _relayered.Clear();
+            _revealedNpcs.Clear();
             Log.Msg("Anomaly reveal: layers restored.");
         }
 

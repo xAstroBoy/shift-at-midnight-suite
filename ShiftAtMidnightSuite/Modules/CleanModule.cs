@@ -29,9 +29,20 @@ namespace ShiftAtMidnightSuite.Modules
         private const float MinAge = 0.2f;     // let a fresh spill finish spawning first
         private const int MaxPerPass = 40;
 
+        private const float ForgetAfter = 30f;  // drop bookkeeping for an object nothing has seen since
+
+        /// <summary>What is known about one object we have looked at. One lookup instead of two.</summary>
+        private sealed class Track
+        {
+            internal float FirstSeen;
+            internal float LastSeen;
+            internal float Attempted;
+        }
+
         private float _nextScan;
-        private readonly Dictionary<int, float> _firstSeen = new Dictionary<int, float>();
-        private readonly Dictionary<int, float> _attempted = new Dictionary<int, float>();
+        private int _phase;
+        private readonly Dictionary<int, Track> _tracked = new Dictionary<int, Track>();
+        private readonly List<int> _expired = new List<int>();
 
         internal int CleanedSpills;
         internal int CleanedMoppables;
@@ -41,9 +52,10 @@ namespace ShiftAtMidnightSuite.Modules
 
         internal void OnSceneChanged()
         {
-            _firstSeen.Clear();
-            _attempted.Clear();
+            _tracked.Clear();
+            _expired.Clear();
             _credited.Clear();
+            _phase = 0;
         }
 
         internal void Tick()
@@ -53,17 +65,26 @@ namespace ShiftAtMidnightSuite.Modules
             if (now < _nextScan) return;
             _nextScan = now + ScanInterval;
 
-            var seen = new HashSet<int>();
+            // One type per pass, rotating.
+            //
+            // All three used to be swept in the same tick, which meant three FindObjectsOfType calls
+            // - each one walking the scene - landing in a single frame, twice a second. On a quiet
+            // night that is invisible; on a night with a lot of limbs on the floor the Trash sweep
+            // alone is large, and putting it in the same frame as the other two is what turned a cost
+            // into a spike. Rotating keeps the same throughput and spreads it out.
             int budget = MaxPerPass;
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                _phase = (_phase + 1) % 3;
+                if (_phase == 0 && CleanSpills) { SweepSpills(now, budget); break; }
+                if (_phase == 1 && CleanMoppables) { SweepMoppables(now, budget); break; }
+                if (_phase == 2 && CleanTrash) { SweepTrash(now, budget); break; }
+            }
 
-            if (CleanSpills) budget = SweepSpills(now, seen, budget);
-            if (CleanMoppables) budget = SweepMoppables(now, seen, budget);
-            if (CleanTrash) budget = SweepTrash(now, seen, budget);
-
-            Prune(seen);
+            Prune(now);
         }
 
-        private int SweepSpills(float now, HashSet<int> seen, int budget)
+        private void SweepSpills(float now, int budget)
         {
             List<Spill> all = Net.FindActive<Spill>();
             for (int i = 0; i < all.Count; i++)
@@ -78,20 +99,18 @@ namespace ShiftAtMidnightSuite.Modules
 
                 int id = IdOf(s);
                 if (id == 0) continue;
-                seen.Add(id);
-                if (budget <= 0 || !Eligible(id, now)) continue;
+                if (!Eligible(id, now) || budget <= 0) continue;
 
                 if (Invoke(s.Rpc_CMD_Clean, s.RequestClean, "Spill"))
                 {
-                    _attempted[id] = now;
+                    MarkAttempted(id, now);
                     CleanedSpills++;
                     budget--;
                 }
             }
-            return budget;
         }
 
-        private int SweepMoppables(float now, HashSet<int> seen, int budget)
+        private void SweepMoppables(float now, int budget)
         {
             List<Moppable> all = Net.FindActive<Moppable>();
             for (int i = 0; i < all.Count; i++)
@@ -101,8 +120,7 @@ namespace ShiftAtMidnightSuite.Modules
 
                 int id = IdOf(m);
                 if (id == 0) continue;
-                seen.Add(id);
-                if (budget <= 0 || !Eligible(id, now)) continue;
+                if (!Eligible(id, now) || budget <= 0) continue;
 
                 // Whether this mess is a roach has to be read before it is cleaned - cleaning is what
                 // tears the object down, and the field is gone with it.
@@ -111,17 +129,16 @@ namespace ShiftAtMidnightSuite.Modules
 
                 if (Invoke(m.Rpc_CMD_Clean, m.RequestClean, "Moppable"))
                 {
-                    _attempted[id] = now;
+                    MarkAttempted(id, now);
                     CleanedMoppables++;
                     budget--;
                     if (isRoach) CreditRoach(id);
                 }
             }
-            return budget;
         }
 
         /// <summary>Loose junk on the floor - limbs, dropped trash - goes through Interactable pickup.</summary>
-        private int SweepTrash(float now, HashSet<int> seen, int budget)
+        private void SweepTrash(float now, int budget)
         {
             List<Trash> all = Net.FindActive<Trash>();
             for (int i = 0; i < all.Count; i++)
@@ -129,13 +146,17 @@ namespace ShiftAtMidnightSuite.Modules
                 Trash t = all[i];
                 if (!IsLiveInScene(t)) continue;
 
-                try { if (t.dontCountTowardHygiene) continue; }
-                catch { }
-
                 int id = IdOf(t);
                 if (id == 0) continue;
-                seen.Add(id);
-                if (budget <= 0 || !Eligible(id, now)) continue;
+
+                // Eligible first, then the budget, then the field reads. On a night with a lot of
+                // limbs almost every object here is one the last pass already handled, and reading
+                // dontCountTowardHygiene and the object name on each of them is an interop call apiece
+                // for an answer that changes nothing.
+                if (!Eligible(id, now) || budget <= 0) continue;
+
+                try { if (t.dontCountTowardHygiene) continue; }
+                catch { }
 
                 bool isRat = false;
                 try { isRat = t.gameObject.name.StartsWith("Rat", StringComparison.OrdinalIgnoreCase); }
@@ -147,13 +168,12 @@ namespace ShiftAtMidnightSuite.Modules
 
                 if (ok)
                 {
-                    _attempted[id] = now;
+                    MarkAttempted(id, now);
                     CleanedTrash++;
                     budget--;
                     if (isRat) CreditRat(id);
                 }
             }
-            return budget;
         }
 
         // ---------------------------------------------------------------- event objectives
@@ -213,19 +233,31 @@ namespace ShiftAtMidnightSuite.Modules
             return false;
         }
 
+        /// <summary>
+        /// Notes that this object still exists and says whether it is worth acting on. Marking it
+        /// seen is what keeps <see cref="Prune"/> from forgetting it, so this must be called for
+        /// every object in the sweep, not only the ones being cleaned.
+        /// </summary>
         private bool Eligible(int id, float now)
         {
-            float first;
-            if (!_firstSeen.TryGetValue(id, out first))
+            Track t;
+            if (!_tracked.TryGetValue(id, out t))
             {
-                _firstSeen[id] = now;
+                _tracked[id] = new Track { FirstSeen = now, LastSeen = now };
                 return false;               // seen for the first time - let it settle a tick
             }
-            if (now - first < MinAge) return false;
 
-            float last;
-            if (_attempted.TryGetValue(id, out last) && now - last < RetryAfter) return false;
+            t.LastSeen = now;
+            if (now - t.FirstSeen < MinAge) return false;
+            if (t.Attempted > 0f && now - t.Attempted < RetryAfter) return false;
             return true;
+        }
+
+        /// <summary>Records that a clean was just asked for, so the retry timer starts.</summary>
+        private void MarkAttempted(int id, float now)
+        {
+            Track t;
+            if (_tracked.TryGetValue(id, out t)) t.Attempted = now;
         }
 
         private static bool IsLiveInScene(Component c)
@@ -247,23 +279,25 @@ namespace ShiftAtMidnightSuite.Modules
             catch { return 0; }
         }
 
-        private void Prune(HashSet<int> seen)
+        /// <summary>
+        /// Forgets objects nothing has seen for a while.
+        ///
+        /// This used to drop anything missing from the current pass, which only worked while all
+        /// three types were swept together - now that they rotate, a Spill would be forgotten on
+        /// every Trash pass and immediately re-enter its settling period, so nothing would ever be
+        /// cleaned. Age is the right test: a live object is re-seen every pass through the rotation,
+        /// well inside the window, and a destroyed one simply stops being seen.
+        /// </summary>
+        private void Prune(float now)
         {
-            if (_firstSeen.Count > 0) PruneMap(_firstSeen, seen);
-            if (_attempted.Count > 0) PruneMap(_attempted, seen);
-        }
+            if (_tracked.Count == 0) return;
 
-        private static void PruneMap(Dictionary<int, float> map, HashSet<int> seen)
-        {
-            List<int> gone = null;
-            foreach (KeyValuePair<int, float> kv in map)
-            {
-                if (seen.Contains(kv.Key)) continue;
-                if (gone == null) gone = new List<int>();
-                gone.Add(kv.Key);
-            }
-            if (gone == null) return;
-            for (int i = 0; i < gone.Count; i++) map.Remove(gone[i]);
+            _expired.Clear();
+            foreach (KeyValuePair<int, Track> kv in _tracked)
+                if (now - kv.Value.LastSeen > ForgetAfter) _expired.Add(kv.Key);
+
+            for (int i = 0; i < _expired.Count; i++) _tracked.Remove(_expired[i]);
+            _expired.Clear();
         }
     }
 }

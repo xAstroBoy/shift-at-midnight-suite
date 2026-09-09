@@ -511,6 +511,8 @@ namespace ShiftAtMidnightSuite.UI
                     Header(root, "CHORES");
                     Toggle(root, "Vents Don't Kick", "Stops the vent throwing you out for staying in it. Getting in and out still works normally.",
                         delegate { return cm.VentsDontKick; }, delegate (bool v) { cm.VentsDontKick = v; });
+                    Toggle(root, "No Hint Popups", "Blocks the HUD nags - \"remember to...\", \"ask the driver...\" - at the queue, so they never appear.",
+                        delegate { return cm.AutoDismissHints; }, delegate (bool v) { cm.AutoDismissHints = v; });
                     Toggle(root, "Instant Traps / Boarding", "Removes the hold timer on placing traps, disarming them and boarding doors.",
                         delegate { return cm.InstantTasks; }, delegate (bool v) { cm.InstantTasks = v; });
                     Toggle(root, "Auto-Fuel Cars", "Opens the fuel flap and fills a car's petrol order as soon as it is asked for.",

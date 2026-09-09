@@ -108,6 +108,32 @@ namespace ShiftAtMidnightSuite
     /// Rake suppression. Every entry point that brings a rake into the world is short-circuited, so
     /// it does not matter which one the night scheduler picks.
     /// </summary>
+    /// <summary>
+    /// The HUD hint popups - "remember to...", "ask the driver...", and the rest of the nagging.
+    ///
+    /// They all funnel through StoreManager.AddHint, which puts an id on hintQueue for NextHint to
+    /// show on hintCanv. Refusing the queue entry is the whole fix: nothing is queued, so nothing is
+    /// ever shown, and no hint machinery has to be unwound afterwards. The canvas is hidden as well,
+    /// for anything already queued before this was switched on.
+    /// </summary>
+    internal static class HintBlock
+    {
+        internal static bool Enabled;
+        internal static int Blocked;
+    }
+
+    [HarmonyPatch(typeof(StoreManager), nameof(StoreManager.AddHint))]
+    internal static class StoreManagerAddHintPatch
+    {
+        [HarmonyPrefix]
+        private static bool Prefix()
+        {
+            if (!HintBlock.Enabled) return true;
+            HintBlock.Blocked++;
+            return false;
+        }
+    }
+
     internal static class RakeBlock
     {
         internal static bool Enabled;

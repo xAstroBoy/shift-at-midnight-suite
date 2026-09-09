@@ -21,7 +21,7 @@ namespace ShiftAtMidnightSuite
     /// </remarks>
     public sealed class SuiteMod : ISuitePlugin
     {
-        internal const string Version = "1.0.1";
+        internal const string Version = "1.0.2";
         private const string HarmonyId = "com.xastroboy.shiftatmidnightsuite.plugin";
 
         private IPluginHost _host;
@@ -59,7 +59,7 @@ namespace ShiftAtMidnightSuite
         private MelonPreferences_Category _cfg;
         private MelonPreferences_Entry<bool> _pGunCase, _pMulCust, _pMulEvent, _pMulNuisance, _pMulDoppel, _pVerbose, _pWeaponWall, _pNoRake, _pRefresh, _pNoHuntEnt, _pNoHunt, _pReviews, _pSkipRead, _pAutoBag, _pUnbagged, _pClearLeftovers, _pSelfCheckout, _pFreezeClock, _pDetector, _pRadar, _pEvidence, _pBadge, _pProfiler,
                                           _pPatience, _pHappy, _pHonestStock, _pInstantTask, _pAutoFuel, _pKillExtras, _pBright,
-                                          _pSkipCountdown, _pSkipBriefing, _pFastEod, _pVentsDontKick, _pStamina, _pGod, _pMoney, _pAmmo, _pFreezeItems,
+                                          _pSkipCountdown, _pSkipBriefing, _pFastEod, _pVentsDontKick, _pNoHints, _pStamina, _pGod, _pMoney, _pAmmo, _pFreezeItems,
                                           _pCleanSpills, _pCleanMop, _pCleanTrash, _pAutoStock, _pStockCrate, _pGrenadeFlamer, _pSilenceBells, _pNoBarriers, _pNoFences, _pNoRoof, _pAutoUnlock, _pHumanShield, _pNoFog, _pWoundFlee;
         private MelonPreferences_Entry<int> _pCustFactor, _pEventFactor, _pMaxSlots, _pNuisanceFactor, _pDoppelCount;
         private MelonPreferences_Entry<float> _pEodSpeed;
@@ -161,6 +161,7 @@ namespace ShiftAtMidnightSuite
                 _pFastEod = Entry("FastEndOfDay", true, "Run the customer report and the money counter faster");
                 _pEodSpeed = Entry("EndOfDaySpeed", 4f, "How much faster the end-of-day report runs");
                 _pVentsDontKick = Entry("VentsDontKick", true, "Vents stop throwing you out for staying in them");
+                _pNoHints = Entry("AutoDismissHints", true, "Block the HUD hint popups entirely");
 
                 // Everything below used to live only in memory, so a hot reload - or just restarting
                 // the game - quietly turned it all back off again.
@@ -255,6 +256,7 @@ namespace ShiftAtMidnightSuite
                 Comfort.FastEndOfDay = _pFastEod.Value;
                 Comfort.EndOfDaySpeed = Mathf.Clamp(_pEodSpeed.Value, 1f, 10f);
                 Comfort.VentsDontKick = _pVentsDontKick.Value;
+                Comfort.AutoDismissHints = _pNoHints.Value;
 
                 Player.InfiniteStamina = _pStamina.Value;
                 Player.GodMode = _pGod.Value;
@@ -350,6 +352,7 @@ namespace ShiftAtMidnightSuite
                 _pFastEod.Value = Comfort.FastEndOfDay;
                 _pEodSpeed.Value = Comfort.EndOfDaySpeed;
                 _pVentsDontKick.Value = Comfort.VentsDontKick;
+                _pNoHints.Value = Comfort.AutoDismissHints;
 
                 _pStamina.Value = Player.InfiniteStamina;
                 _pGod.Value = Player.GodMode;
@@ -492,6 +495,11 @@ namespace ShiftAtMidnightSuite
 
                 using (Profiler.Begin("Menu.Input")) _menu.HandleInput();
 
+                // Settled before the modules run, so Comfort holds the item lock on the same frame
+                // the menu appears rather than one behind it.
+                bool menuOpen = (_ui != null && _ui.Visible) || (_menu != null && _menu.Visible);
+                Comfort.MenuOpen = menuOpen;
+
                 // The cheats only need to re-assert a few times a second; per-frame was pure waste.
                 if (Player.AnyActive && Time.unscaledTime >= _nextPlayerTick)
                 {
@@ -509,7 +517,7 @@ namespace ShiftAtMidnightSuite
                 using (Profiler.Begin("Comfort.Tick")) Comfort.Tick();
 
                 // Reads the trigger itself, so the fire rate is not the flamethrower's to decide.
-                WeaponMods.Tick(_ui != null && _ui.Visible);
+                WeaponMods.Tick(menuOpen);
                 Profiler.Tick();
             }
             catch (Exception ex)

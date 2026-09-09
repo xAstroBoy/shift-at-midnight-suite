@@ -215,9 +215,9 @@ namespace ShiftAtMidnightSuite.Modules
             _freeSince = 0f;
             // A new scene brings new interactables: the saved hold times belong to objects that no
             // longer exist, and their instance ids can be handed out again.
-            _holdTimes.Clear();
-            _holdsZeroed = false;
-            _nextHoldSweep = 0f;
+            _heldZeroed = null;
+            _heldZeroedId = 0;
+            _eodReport = null;
             // Never carry a raised clock across a scene load - the report that justified it is gone.
             RestoreEndOfDay();
             _nextEodCheck = 0f;
@@ -243,7 +243,7 @@ namespace ShiftAtMidnightSuite.Modules
 
             // Task bars are read every frame by the game, so this one is not throttled. The hold-time
             // sweep behind it is, because it walks every interactable in the scene.
-            if (InstantTasks) { SkipTaskTimers(); ApplyInstantHolds(now); }
+            if (InstantTasks) { SkipTaskTimers(); ApplyInstantHolds(); }
             else RestoreHolds();
 
             if ((MaxPatience || HappyCustomers) && now >= _nextCustomer)
@@ -278,6 +278,8 @@ namespace ShiftAtMidnightSuite.Modules
                 DismissHuntBriefing();
             }
 
+            ApplyMenuItemLock();
+            DismissHints(now);
             DriveEndOfDay(now);
             ApplyVentKick(now, VentsDontKick);
 
@@ -423,66 +425,62 @@ namespace ShiftAtMidnightSuite.Modules
 
         // ---------------------------------------------------------------- hold-to-interact
 
-        private readonly Dictionary<int, float> _holdTimes = new Dictionary<int, float>();
-        private float _nextHoldSweep;
-        private bool _holdsZeroed;
+        private Interactable _heldZeroed;
+        private int _heldZeroedId;
+        private float _heldOriginal;
 
         /// <summary>
-        /// Removes the hold requirement at its source.
+        /// Removes the hold requirement at its source, for the one object it can possibly matter on.
         ///
         /// Completing the fill bar every frame races the game: it is written from Update, so anything
         /// that resets or re-reads it in the same frame can undo the push, and that race is what made
         /// arming and disarming work "most of the time". Interactable.holdInteractableTime is the
-        /// value the bar is measured against, and it is a plain float on the object. Zeroing it means
-        /// there is no bar to win a race against. Originals are kept so switching the option off puts
-        /// every one of them back.
+        /// value the bar is measured against, and it is a plain float on the object, so zeroing it
+        /// means there is no bar to win a race against.
+        ///
+        /// This first swept every Interactable in the scene every two seconds to do that, which was a
+        /// FindObjectsOfType over one of the most numerous base types in the game - every shelf, door,
+        /// vent and pickup - and it was a needless one. You can only hold a button on the thing you
+        /// are looking at, and InteractManager already knows which that is. One property read a frame
+        /// replaces the sweep, and putting the value back becomes trivial because there is only ever
+        /// one object to put back.
         /// </summary>
-        private void ApplyInstantHolds(float now)
+        private void ApplyInstantHolds()
         {
-            if (now < _nextHoldSweep) return;
-            _nextHoldSweep = now + 2f;
+            InventoryManager inv = Net.LocalInventory;
+            InteractManager im = null;
+            if (Net.Alive(inv)) { try { im = inv.interactMan; } catch { } }
 
-            List<Interactable> all = Net.FindActive<Interactable>();
-            for (int i = 0; i < all.Count; i++)
+            Interactable cur = null;
+            if (Net.Alive(im)) { try { cur = im.curInteractable; } catch { } }
+
+            int curId = 0;
+            if (Net.Alive(cur)) { try { curId = cur.GetInstanceID(); } catch { } }
+
+            // Looking at something else now, or at nothing: hand the old one its timer back first.
+            if (_heldZeroed != null && curId != _heldZeroedId) RestoreHolds();
+
+            if (curId == 0 || curId == _heldZeroedId) return;
+
+            try
             {
-                Interactable it = all[i];
-                if (!Net.Alive(it)) continue;
-                try
-                {
-                    if (!it.holdInteractable || it.holdInteractableTime <= 0f) continue;
-                    int id = it.GetInstanceID();
-                    if (!_holdTimes.ContainsKey(id)) _holdTimes[id] = it.holdInteractableTime;
-                    it.holdInteractableTime = 0f;
-                }
-                catch { }
+                if (!cur.holdInteractable || cur.holdInteractableTime <= 0f) return;
+                _heldOriginal = cur.holdInteractableTime;
+                _heldZeroed = cur;
+                _heldZeroedId = curId;
+                cur.holdInteractableTime = 0f;
             }
-            _holdsZeroed = true;
+            catch { }
         }
 
-        /// <summary>Puts every hold time this session flattened back the way the game shipped it.</summary>
+        /// <summary>Puts the one flattened hold time back the way the game shipped it.</summary>
         private void RestoreHolds()
         {
-            if (!_holdsZeroed) return;
-            _holdsZeroed = false;
-            _nextHoldSweep = 0f;
-
-            if (_holdTimes.Count > 0)
-            {
-                List<Interactable> all = Net.FindActive<Interactable>();
-                for (int i = 0; i < all.Count; i++)
-                {
-                    Interactable it = all[i];
-                    if (!Net.Alive(it)) continue;
-                    try
-                    {
-                        float original;
-                        if (_holdTimes.TryGetValue(it.GetInstanceID(), out original))
-                            it.holdInteractableTime = original;
-                    }
-                    catch { }
-                }
-            }
-            _holdTimes.Clear();
+            if (_heldZeroed == null) return;
+            try { if (Net.Alive(_heldZeroed)) _heldZeroed.holdInteractableTime = _heldOriginal; }
+            catch { }
+            _heldZeroed = null;
+            _heldZeroedId = 0;
         }
 
         // ================================================================ stock rating
@@ -842,12 +840,65 @@ namespace ShiftAtMidnightSuite.Modules
             }
         }
 
+        // ================================================================ menu item lock
+
+        /// <summary>Set every frame by the suite: is the mod menu on screen right now?</summary>
+        internal bool MenuOpen;
+
+        private bool _menuPausedItems;
+
+        /// <summary>
+        /// Stops the game using the item in your hands while the menu is up.
+        ///
+        /// Clicking a checkbox was also pulling the trigger: the menu is an overlay, and the game's
+        /// own item handling never learns that a click was meant for something else. The grenade
+        /// launcher already refused to fire with the menu open, but that only covered the suite's own
+        /// weapon - the vanilla one underneath it kept shooting. InventoryManager.PauseUseItem is the
+        /// game's own answer, and it is what dialogue uses for the same reason.
+        ///
+        /// Only ever unpaused if this is what paused it, so a conversation or a computer screen that
+        /// legitimately holds the lock keeps holding it after the menu closes.
+        /// </summary>
+        private void ApplyMenuItemLock()
+        {
+            InventoryManager inv = Net.LocalInventory;
+            if (!Net.Alive(inv))
+            {
+                _menuPausedItems = false;
+                return;
+            }
+
+            try
+            {
+                if (MenuOpen)
+                {
+                    if (!_menuPausedItems && inv.canControlItem)
+                    {
+                        inv.PauseUseItem();
+                        _menuPausedItems = true;
+                    }
+                    return;
+                }
+
+                if (_menuPausedItems)
+                {
+                    _menuPausedItems = false;
+                    if (!inv.canControlItem) inv.UnpauseUseItem();
+                }
+            }
+            catch (Exception ex) { Log.Debug("menu item lock: " + ex.Message); }
+        }
+
         // ================================================================ item lock
 
         private void ReleaseItemLock(float now)
         {
             try
             {
+                // The menu holds the lock on purpose while it is open. Releasing it here would undo
+                // that a tick later and put the trigger back under the checkboxes.
+                if (MenuOpen || _menuPausedItems) { _freeSince = 0f; return; }
+
                 InventoryManager inv = Net.LocalInventory;
                 PlayerManager pm = Net.LocalPlayer;
                 if (!Net.Alive(inv) || !Net.Alive(pm)) { _freeSince = 0f; return; }
@@ -1254,6 +1305,8 @@ namespace ShiftAtMidnightSuite.Modules
         private bool _eodBoosted;
         private float _eodRestoreTo = 1f;
         private float _nextEodCheck;
+        private EndOfDayReport _eodReport;
+        private float _nextEodFind;
 
         /// <summary>
         /// Raises the clock while the end-of-day report is on screen and puts it back the moment it is
@@ -1266,19 +1319,34 @@ namespace ShiftAtMidnightSuite.Modules
             if (now < _nextEodCheck) return;
             _nextEodCheck = now + 0.25f;
 
-            bool showing = false;
-            try
+            // The report object lives for the whole scene, so find it once and keep it. Asking
+            // FindObjectsOfType four times a second for a type with one instance still walks the
+            // whole scene every time, and that cost lands on whatever else is busy that frame.
+            if (!Net.Alive(_eodReport))
             {
-                List<EndOfDayReport> reports = Net.FindActive<EndOfDayReport>();
-                for (int i = 0; i < reports.Count && !showing; i++)
+                _eodReport = null;
+                if (now >= _nextEodFind)
                 {
-                    EndOfDayReport r = reports[i];
-                    if (!Net.Alive(r)) continue;
-                    try { showing = r.eodReportHolder != null && r.eodReportHolder.activeInHierarchy; }
-                    catch { }
+                    _nextEodFind = now + 5f;
+                    try
+                    {
+                        List<EndOfDayReport> reports = Net.FindActive<EndOfDayReport>();
+                        if (reports.Count > 0) _eodReport = reports[0];
+                    }
+                    catch (Exception ex) { Log.Debug("eod scan: " + ex.Message); }
                 }
             }
-            catch (Exception ex) { Log.Debug("eod scan: " + ex.Message); }
+
+            bool showing = false;
+            if (Net.Alive(_eodReport))
+            {
+                try
+                {
+                    GameObject holder = _eodReport.eodReportHolder;
+                    showing = holder != null && holder.activeInHierarchy;
+                }
+                catch { }
+            }
 
             if (showing && FastEndOfDay)
             {
@@ -1335,6 +1403,31 @@ namespace ShiftAtMidnightSuite.Modules
                 catch { }
             }
             _ventsFreed = free;
+        }
+
+        // ================================================================ hints
+
+        /// <summary>Blocks the HUD hint popups. Backed by the Harmony prefix on StoreManager.AddHint.</summary>
+        internal bool AutoDismissHints
+        {
+            get { return HintBlock.Enabled; }
+            set { HintBlock.Enabled = value; }
+        }
+
+        private float _nextHintSweep;
+
+        /// <summary>Clears anything that was already queued before the block went on.</summary>
+        private void DismissHints(float now)
+        {
+            if (!HintBlock.Enabled || now < _nextHintSweep) return;
+            _nextHintSweep = now + 0.2f;
+            try
+            {
+                StoreManager sm = StoreManager.Instance;
+                if (!Net.Alive(sm)) return;
+                if (Hide(sm.hintCanv)) HintBlock.Blocked++;
+            }
+            catch (Exception ex) { Log.Debug("hints: " + ex.Message); }
         }
 
         private static bool Hide(GameObject go)

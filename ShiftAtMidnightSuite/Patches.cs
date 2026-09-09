@@ -696,30 +696,19 @@ namespace ShiftAtMidnightSuite
         }
 
         /// <summary>
-        /// Someone the game itself treats as a target rather than a customer.
+        /// Someone the shield must not cover, decided by name alone.
         ///
-        /// Preferring the game's own flags over a name list is the point: Hittable.dontPunishForKilling
-        /// and hasBounty are how the game marks "you are meant to kill this", and
-        /// StoreBrowseBehaviour.damageToPlayer is only non-zero on people who can hurt you. The name
-        /// list is the backstop for characters that carry none of those - it is checked last and it is
-        /// editable, so a miss is a config change rather than a rebuild.
+        /// This was first written to prefer the game's own flags - dontPunishForKilling, hasBounty,
+        /// getAchievementForKilling, damageToPlayer - on the theory that they mark "you are meant to
+        /// kill this". They do not. Clyde Dawson and the car NPCs carry enough of them to be let
+        /// through, and both are ordinary people; the theory was an inference, and it was wrong. Only
+        /// the name list decides now. It is narrow, it is exactly what was actually asked for, and
+        /// being editable means a miss costs a line in a config file rather than a wrong guess about
+        /// somebody's flags. <see cref="ReportShielded"/> prints the name of anything still protected,
+        /// which is how you find the fragment to add.
         /// </summary>
         private static bool IsHostile(Hittable h)
         {
-            try { if (h.dontPunishForKilling) return true; } catch { }
-            try { if (h.hasBounty) return true; } catch { }
-            try { if (h.hittingCausesFinalSequence) return true; } catch { }
-
-            StoreBrowseBehaviour b = Browse(h);
-            if (b != null)
-            {
-                try { if (b.getAchievementForKilling) return true; } catch { }
-                try { if (b.damageToPlayer > 0f) return true; } catch { }
-                try { if (b.attacking) return true; } catch { }
-                try { if (b.chasingPlayer) return true; } catch { }
-                try { if (b.hasStolenItems || b.doesntGiveBackItems) return true; } catch { }
-            }
-
             string[] names = Names();
             if (names.Length == 0) return false;
 
@@ -731,6 +720,26 @@ namespace ShiftAtMidnightSuite
                 if (n.Contains(names[i])) return true;
 
             return false;
+        }
+
+        /// <summary>
+        /// The game's own "is this a target" flags, as a string. Diagnostic only - nothing branches on
+        /// these - so that the guess above can be replaced with something evidence-backed later
+        /// instead of being guessed at twice.
+        /// </summary>
+        private static string Flags(Hittable h)
+        {
+            string s = "";
+            try { s += " dontPunish=" + h.dontPunishForKilling; } catch { }
+            try { s += " bounty=" + h.hasBounty; } catch { }
+            StoreBrowseBehaviour b = Browse(h);
+            if (b != null)
+            {
+                try { s += " achievement=" + b.getAchievementForKilling; } catch { }
+                try { s += " dmgToPlayer=" + b.damageToPlayer; } catch { }
+                try { s += " countsAsCustomer=" + b.countsAsCustomer; } catch { }
+            }
+            return s;
         }
 
         /// <summary>The browse behaviour for this hittable, wherever the prefab hung it.</summary>
@@ -772,7 +781,7 @@ namespace ShiftAtMidnightSuite
             string name = "?";
             try { name = h.gameObject.name; } catch { }
             if (!_noted.Add("shielded:" + name)) return;
-            Log.Msg("SHIELDED: " + name + " is being protected as a bystander. If it should be " +
+            Log.Msg("SHIELDED: " + name + Flags(h) + " - protected as a bystander. If it should be " +
                     "killable, add part of that name to HostileNames in MelonPreferences.cfg.");
         }
 
@@ -866,6 +875,7 @@ namespace ShiftAtMidnightSuite
             try { what += " pDialogue=" + (h.GetComponentInParent<DialogueInteractable>() != null); } catch { }
             try { what += " pNpc=" + (h.GetComponentInParent<Npc>() != null); } catch { }
             try { what += " doppel=" + IsDoppelganger(h); } catch { }
+            what += " |" + Flags(h);
 
             string path = "";
             try

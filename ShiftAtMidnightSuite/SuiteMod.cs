@@ -59,9 +59,10 @@ namespace ShiftAtMidnightSuite
         private MelonPreferences_Category _cfg;
         private MelonPreferences_Entry<bool> _pGunCase, _pMulCust, _pMulEvent, _pMulNuisance, _pMulDoppel, _pVerbose, _pWeaponWall, _pNoRake, _pRefresh, _pNoHuntEnt, _pNoHunt, _pReviews, _pSkipRead, _pAutoBag, _pUnbagged, _pClearLeftovers, _pSelfCheckout, _pFreezeClock, _pDetector, _pRadar, _pEvidence, _pBadge, _pProfiler,
                                           _pPatience, _pHappy, _pHonestStock, _pInstantTask, _pAutoFuel, _pKillExtras, _pBright,
-                                          _pSkipCountdown, _pSkipBriefing, _pStamina, _pGod, _pMoney, _pAmmo, _pFreezeItems,
+                                          _pSkipCountdown, _pSkipBriefing, _pFastEod, _pVentsDontKick, _pStamina, _pGod, _pMoney, _pAmmo, _pFreezeItems,
                                           _pCleanSpills, _pCleanMop, _pCleanTrash, _pAutoStock, _pStockCrate, _pGrenadeFlamer, _pSilenceBells, _pNoBarriers, _pNoFences, _pNoRoof, _pAutoUnlock, _pHumanShield, _pNoFog, _pWoundFlee;
         private MelonPreferences_Entry<int> _pCustFactor, _pEventFactor, _pMaxSlots, _pNuisanceFactor, _pDoppelCount;
+        private MelonPreferences_Entry<float> _pEodSpeed;
         private MelonPreferences_Entry<float> _pPatienceFactor, _pBrightBoost, _pSpeedMul, _pJumpMul, _pNoclipSpeed,
                                                  _pGrenadeRate, _pGrenadeForce;
         private MelonPreferences_Entry<int> _pAmmoTarget, _pFundsFloor, _pSpawnAmount, _pGrenadeBurst;
@@ -157,6 +158,9 @@ namespace ShiftAtMidnightSuite
                 _pClearLeftovers = Entry("ClearCounterLeftovers", true, "Remove unbagged items from the counter once the customer is done");
                 _pSkipCountdown = Entry("AutoSkipHuntCountdown", false, "Skip the warning delay before the entity arrives");
                 _pSkipBriefing = Entry("SkipHuntBriefing", false, "Dismiss the hunt explanation panels as soon as they appear");
+                _pFastEod = Entry("FastEndOfDay", true, "Run the customer report and the money counter faster");
+                _pEodSpeed = Entry("EndOfDaySpeed", 4f, "How much faster the end-of-day report runs");
+                _pVentsDontKick = Entry("VentsDontKick", true, "Vents stop throwing you out for staying in them");
 
                 // Everything below used to live only in memory, so a hot reload - or just restarting
                 // the game - quietly turned it all back off again.
@@ -248,6 +252,9 @@ namespace ShiftAtMidnightSuite
                 Comfort.AutoKillExtras = _pKillExtras.Value;
                 Comfort.AutoSkipHuntCountdown = _pSkipCountdown.Value;
                 Comfort.SkipHuntBriefing = _pSkipBriefing.Value;
+                Comfort.FastEndOfDay = _pFastEod.Value;
+                Comfort.EndOfDaySpeed = Mathf.Clamp(_pEodSpeed.Value, 1f, 10f);
+                Comfort.VentsDontKick = _pVentsDontKick.Value;
 
                 Player.InfiniteStamina = _pStamina.Value;
                 Player.GodMode = _pGod.Value;
@@ -340,6 +347,9 @@ namespace ShiftAtMidnightSuite
                 _pKillExtras.Value = Comfort.AutoKillExtras;
                 _pSkipCountdown.Value = Comfort.AutoSkipHuntCountdown;
                 _pSkipBriefing.Value = Comfort.SkipHuntBriefing;
+                _pFastEod.Value = Comfort.FastEndOfDay;
+                _pEodSpeed.Value = Comfort.EndOfDaySpeed;
+                _pVentsDontKick.Value = Comfort.VentsDontKick;
 
                 _pStamina.Value = Player.InfiniteStamina;
                 _pGod.Value = Player.GodMode;

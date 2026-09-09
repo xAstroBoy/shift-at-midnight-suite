@@ -501,7 +501,16 @@ namespace ShiftAtMidnightSuite.UI
                     Toggle(root, "Wounded Run Away", "A blow that would have killed sends them fleeing the store instead of leaving them standing there unharmed.",
                         delegate { return HumanShield.WoundAndFlee; }, delegate (bool v) { HumanShield.WoundAndFlee = v; });
 
+                    Header(root, "END OF DAY");
+                    Toggle(root, "Fast Customer Report", "Runs the whole end-of-day screen faster - the customer report and the money counter both. The figures are unchanged, they just stop crawling.",
+                        delegate { return cm.FastEndOfDay; }, delegate (bool v) { cm.FastEndOfDay = v; });
+                    Stepper(root, "Report Speed", "How much faster, while the report is on screen.",
+                        delegate { return cm.EndOfDaySpeed.ToString("0.0") + "x"; },
+                        delegate (int dir) { cm.EndOfDaySpeed = Mathf.Clamp(cm.EndOfDaySpeed + dir, 1f, 10f); }, 1, 4);
+
                     Header(root, "CHORES");
+                    Toggle(root, "Vents Don't Kick", "Stops the vent throwing you out for staying in it. Getting in and out still works normally.",
+                        delegate { return cm.VentsDontKick; }, delegate (bool v) { cm.VentsDontKick = v; });
                     Toggle(root, "Instant Traps / Boarding", "Removes the hold timer on placing traps, disarming them and boarding doors.",
                         delegate { return cm.InstantTasks; }, delegate (bool v) { cm.InstantTasks = v; });
                     Toggle(root, "Auto-Fuel Cars", "Opens the fuel flap and fills a car's petrol order as soon as it is asked for.",

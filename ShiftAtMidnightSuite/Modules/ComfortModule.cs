@@ -42,6 +42,31 @@ namespace ShiftAtMidnightSuite.Modules
         internal int BriefingsSkipped;
 
         /// <summary>
+        /// Runs the end-of-day report faster.
+        ///
+        /// Every part of that screen is on a timer of its own - the customer report walks the night's
+        /// npcFolders one at a time, and the revenue counter ticks its way up to the real figure - and
+        /// there is no single "speed" to turn up. Time.timeScale is the one lever that moves all of
+        /// them at once, and it is safe here in a way it would not be during a shift: the report is a
+        /// UI sequence with no gameplay behind it, and nothing about the numbers themselves changes,
+        /// only how long they take to be shown. Scaling deliberately does not touch the money values.
+        /// </summary>
+        internal bool FastEndOfDay;
+
+        /// <summary>How much faster, 2-10x.</summary>
+        internal float EndOfDaySpeed = 4f;
+
+        /// <summary>
+        /// Stops the vents throwing you out.
+        ///
+        /// VentTrigger drives the eviction with ventPushOutAnim, and Vent.StayingInVentTooLongHint is
+        /// the nag that comes with it. Disabling that one animator leaves entering and leaving a vent
+        /// working exactly as before - the trigger still tracks playersInVent - it just stops the vent
+        /// deciding you have been in there long enough.
+        /// </summary>
+        internal bool VentsDontKick;
+
+        /// <summary>
         /// Releases the item lock that a conversation leaves behind.
         ///
         /// DialogueInteractable calls InventoryManager.PauseUseItem when a conversation starts, and it
@@ -149,7 +174,8 @@ namespace ShiftAtMidnightSuite.Modules
             get
             {
                 return MaxPatience || HappyCustomers || HonestStock || InstantTasks || AutoFuel || AutoUnlockInventory
-                       || AutoKillExtras || AutoSkipHuntCountdown || SkipHuntBriefing || _silenceBells || !_bellsApplied
+                       || AutoKillExtras || AutoSkipHuntCountdown || SkipHuntBriefing || FastEndOfDay
+                       || VentsDontKick || _eodBoosted || _ventsFreed || _silenceBells || !_bellsApplied
                        || _curbGroup.Active || _fenceGroup.Active || _roofGroup.Active || _noFog
                        || _brightOn;
             }
@@ -192,6 +218,12 @@ namespace ShiftAtMidnightSuite.Modules
             _holdTimes.Clear();
             _holdsZeroed = false;
             _nextHoldSweep = 0f;
+            // Never carry a raised clock across a scene load - the report that justified it is gone.
+            RestoreEndOfDay();
+            _nextEodCheck = 0f;
+            _vents.Clear();
+            _ventsFreed = false;
+            _nextVentScan = 0f;
             _bellsApplied = false;   // a new scene brings new doors, so re-apply
             // A new scene brings new scenery: forget the old colliders and start looking again.
             ReArm(_curbGroup);
@@ -245,6 +277,9 @@ namespace ShiftAtMidnightSuite.Modules
                 _nextBriefing = now + 0.2f;
                 DismissHuntBriefing();
             }
+
+            DriveEndOfDay(now);
+            ApplyVentKick(now, VentsDontKick);
 
             HoldBlockers(now);
 
@@ -1212,6 +1247,94 @@ namespace ShiftAtMidnightSuite.Modules
                 if (Hide(sm.huntExplanation) | Hide(sm.huntExplanation2)) BriefingsSkipped++;
             }
             catch (Exception ex) { Log.Debug("hunt briefing: " + ex.Message); }
+        }
+
+        // ================================================================ end of day
+
+        private bool _eodBoosted;
+        private float _eodRestoreTo = 1f;
+        private float _nextEodCheck;
+
+        /// <summary>
+        /// Raises the clock while the end-of-day report is on screen and puts it back the moment it is
+        /// not. Only ever restores a value this raised, so it cannot fight anything else that owns
+        /// timeScale, and the report's own numbers are untouched - this changes how long they take to
+        /// count, not what they count to.
+        /// </summary>
+        private void DriveEndOfDay(float now)
+        {
+            if (now < _nextEodCheck) return;
+            _nextEodCheck = now + 0.25f;
+
+            bool showing = false;
+            try
+            {
+                List<EndOfDayReport> reports = Net.FindActive<EndOfDayReport>();
+                for (int i = 0; i < reports.Count && !showing; i++)
+                {
+                    EndOfDayReport r = reports[i];
+                    if (!Net.Alive(r)) continue;
+                    try { showing = r.eodReportHolder != null && r.eodReportHolder.activeInHierarchy; }
+                    catch { }
+                }
+            }
+            catch (Exception ex) { Log.Debug("eod scan: " + ex.Message); }
+
+            if (showing && FastEndOfDay)
+            {
+                if (!_eodBoosted)
+                {
+                    _eodRestoreTo = Time.timeScale;
+                    _eodBoosted = true;
+                    Log.Msg("End-of-day report sped up to " + EndOfDaySpeed.ToString("0.0") + "x.");
+                }
+                float want = Mathf.Clamp(EndOfDaySpeed, 1f, 10f);
+                if (!Mathf.Approximately(Time.timeScale, want)) Time.timeScale = want;
+                return;
+            }
+
+            RestoreEndOfDay();
+        }
+
+        private void RestoreEndOfDay()
+        {
+            if (!_eodBoosted) return;
+            _eodBoosted = false;
+            try { Time.timeScale = _eodRestoreTo <= 0f ? 1f : _eodRestoreTo; }
+            catch { }
+        }
+
+        // ================================================================ vents
+
+        private readonly List<VentTrigger> _vents = new List<VentTrigger>();
+        private float _nextVentScan;
+        private bool _ventsFreed;
+
+        /// <summary>
+        /// Switches off the animator that evicts you. Entering and leaving still work - the trigger
+        /// keeps tracking playersInVent either way - the vent just stops throwing you out of it.
+        /// </summary>
+        private void ApplyVentKick(float now, bool free)
+        {
+            if (!free && !_ventsFreed) return;
+            if (now < _nextVentScan) return;
+            _nextVentScan = now + 2f;
+
+            _vents.Clear();
+            _vents.AddRange(Net.FindActive<VentTrigger>());
+            for (int i = 0; i < _vents.Count; i++)
+            {
+                VentTrigger v = _vents[i];
+                if (!Net.Alive(v)) continue;
+                try
+                {
+                    Animator push = v.ventPushOutAnim;
+                    if (push == null) continue;
+                    if (push.enabled == free) push.enabled = !free;
+                }
+                catch { }
+            }
+            _ventsFreed = free;
         }
 
         private static bool Hide(GameObject go)

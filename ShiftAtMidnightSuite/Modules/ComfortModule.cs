@@ -218,6 +218,7 @@ namespace ShiftAtMidnightSuite.Modules
             _heldZeroed = null;
             _heldZeroedId = 0;
             _eodReport = null;
+            _noCameraLogged = false;
             // Never carry a raised clock across a scene load - the report that justified it is gone.
             RestoreEndOfDay();
             _nextEodCheck = 0f;
@@ -1327,6 +1328,7 @@ namespace ShiftAtMidnightSuite.Modules
             if (!Net.Alive(_eodReport))
             {
                 _eodReport = null;
+            _noCameraLogged = false;
                 if (now >= _nextEodFind)
                 {
                     _nextEodFind = now + 5f;
@@ -1472,6 +1474,76 @@ namespace ShiftAtMidnightSuite.Modules
         private Camera _mainCam;
         private int _savedCullingMask;
         private bool _maskSaved;
+        private bool _noCameraLogged;
+
+        /// <summary>
+        /// Dumps the rig of every doppelganger in the scene.
+        ///
+        /// The lens only affects doppelgangers, which puts the hidden figure on the NPC rather than on
+        /// the lens - a child object or a renderer that is switched off until you look through it.
+        /// This prints every transform and every renderer under each one, with its active and enabled
+        /// state, so the thing that differs between "seen through the lens" and "not" is visible in
+        /// black and white rather than reasoned about.
+        ///
+        /// Once that is known the reveal is a matter of flipping it, with the jumpscare creature and
+        /// the fully-invisible doppelganger left alone.
+        /// </summary>
+        internal void DumpDoppelgangerRig()
+        {
+            try
+            {
+                List<StoreBrowseBehaviour> all = Net.FindActive<StoreBrowseBehaviour>();
+                int shown = 0;
+
+                for (int i = 0; i < all.Count && shown < 3; i++)
+                {
+                    StoreBrowseBehaviour b = all[i];
+                    if (!Net.Alive(b)) continue;
+
+                    bool doppel = false;
+                    try { doppel = b.isDoppelganger; } catch { }
+                    if (!doppel) continue;
+                    shown++;
+
+                    Log.Msg("DOPPELGANGER RIG: " + b.gameObject.name);
+
+                    Transform[] parts = b.GetComponentsInChildren<Transform>(true);
+                    for (int k = 0; k < parts.Length && k < 80; k++)
+                    {
+                        Transform t = parts[k];
+                        if (t == null) continue;
+                        Log.Msg("   T " + t.name + " active=" + t.gameObject.activeSelf +
+                                " layer=" + LayerMask.LayerToName(t.gameObject.layer));
+                    }
+
+                    Renderer[] rends = b.GetComponentsInChildren<Renderer>(true);
+                    for (int k = 0; k < rends.Length && k < 40; k++)
+                    {
+                        Renderer r = rends[k];
+                        if (r == null) continue;
+                        string shader = "?";
+                        try { shader = r.sharedMaterial == null ? "(no material)" : r.sharedMaterial.shader.name; }
+                        catch { }
+                        Log.Msg("   R " + r.gameObject.name + " enabled=" + r.enabled +
+                                " active=" + r.gameObject.activeSelf +
+                                " layer=" + LayerMask.LayerToName(r.gameObject.layer) +
+                                " shader=" + shader);
+                    }
+                }
+
+                if (shown == 0)
+                {
+                    LastResult = "No doppelganger in the scene to dump";
+                    Log.Warn(LastResult + " - do this with one in the store.");
+                    return;
+                }
+
+                Camera main = Camera.main;
+                if (main != null) Log.Msg("MAIN CAMERA mask=" + MaskNames(main.cullingMask));
+                LastResult = "Dumped " + shown + " doppelganger rig(s)";
+            }
+            catch (Exception ex) { Log.Ex("dump doppelganger rig", ex); LastResult = "Dump failed"; }
+        }
 
         /// <summary>
         /// Adds whatever the anomaly lens renders and the player camera does not. Returns the layers
@@ -1490,8 +1562,14 @@ namespace ShiftAtMidnightSuite.Modules
                 Camera lensCam = lens.GetComponentInChildren<Camera>(true);
                 if (lensCam == null)
                 {
-                    Log.Msg("Anomaly reveal: the lens has no camera, so it is not hiding things by " +
-                            "render layer. Use Dump Anomaly Lens To Log and send the output.");
+                    // Once. This runs on a sweep, and it was drowning the log at one line every two
+                    // seconds - a diagnostic nobody can read is not a diagnostic.
+                    if (!_noCameraLogged)
+                    {
+                        _noCameraLogged = true;
+                        Log.Msg("Anomaly reveal: the lens has no camera, so it is not hiding things by " +
+                                "render layer. Use Dump Anomaly Lens To Log and send the output.");
+                    }
                     return 0;
                 }
 

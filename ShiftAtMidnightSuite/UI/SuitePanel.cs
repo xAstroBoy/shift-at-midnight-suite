@@ -521,7 +521,7 @@ namespace ShiftAtMidnightSuite.UI
                     Header(root, "SCANNING");
                     Toggle(root, "Instant Emoti-Scope", "The scan bar fills at once. The game's own threshold still fires, so the emotion reads out the usual way, just sooner.",
                         delegate { return cm.InstantEmotiscope; }, delegate (bool v) { cm.InstantEmotiscope = v; });
-                    Toggle(root, "Reveal Anomaly-Lens Objects", "Shows what you would normally need the anomaly lens to see, without holding the lens. Still being worked out - if it does nothing, use the dump button below.",
+                    Toggle(root, "Reveal Anomaly Forms", "Shows the second figure the anomaly lens reveals, without holding the lens. It is a whole duplicate rig sat on the GhostCamera layer, which the player camera does not draw; this moves it onto a layer that is drawn. The jumpscare creature and the doppelganger with no visible body are both left alone.",
                         delegate { return cm.RevealScanOnly; }, delegate (bool v) { cm.RevealScanOnly = v; });
                     Button(root, "Dump Doppelganger Rig To Log", "The lens only affects doppelgangers, so the hidden figure is on them. This prints every child object and renderer of the doppelgangers in the store, with their on/off state. Press it with one in the shop and send the output - that is what makes the reveal work.",
                         delegate { cm.DumpDoppelgangerRig(); });

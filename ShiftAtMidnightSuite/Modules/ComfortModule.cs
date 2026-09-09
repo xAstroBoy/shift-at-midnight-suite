@@ -218,7 +218,8 @@ namespace ShiftAtMidnightSuite.Modules
             _heldZeroed = null;
             _heldZeroedId = 0;
             _eodReport = null;
-            _noCameraLogged = false;
+            _relayered.Clear();
+            _ghostLayer = -2;
             // Never carry a raised clock across a scene load - the report that justified it is gone.
             RestoreEndOfDay();
             _nextEodCheck = 0f;
@@ -1328,7 +1329,6 @@ namespace ShiftAtMidnightSuite.Modules
             if (!Net.Alive(_eodReport))
             {
                 _eodReport = null;
-            _noCameraLogged = false;
                 if (now >= _nextEodFind)
                 {
                     _nextEodFind = now + 5f;
@@ -1471,10 +1471,6 @@ namespace ShiftAtMidnightSuite.Modules
         /// </summary>
         internal bool RevealScanOnly;
 
-        private Camera _mainCam;
-        private int _savedCullingMask;
-        private bool _maskSaved;
-        private bool _noCameraLogged;
 
         /// <summary>
         /// Dumps the rig of every doppelganger in the scene.
@@ -1546,43 +1542,49 @@ namespace ShiftAtMidnightSuite.Modules
         }
 
         /// <summary>
-        /// Adds whatever the anomaly lens renders and the player camera does not. Returns the layers
-        /// it found, for the log.
+        /// Layers involved, resolved once. GhostCamera is the one the main camera does not draw.
         /// </summary>
-        private int AnomalyLayers()
+        private int _ghostLayer = -2;
+        private int _visibleLayer = -2;
+
+        private void ResolveLayers()
+        {
+            if (_ghostLayer != -2) return;
+            _ghostLayer = LayerMask.NameToLayer("GhostCamera");
+            _visibleLayer = LayerMask.NameToLayer("NPC");
+            if (_ghostLayer < 0 || _visibleLayer < 0)
+                Log.Warn("Anomaly reveal: expected layers not found (GhostCamera=" + _ghostLayer +
+                         ", NPC=" + _visibleLayer + "). Reveal disabled.");
+        }
+
+        /// <summary>Transforms moved off the GhostCamera layer, with the layer they came from.</summary>
+        private readonly List<KeyValuePair<Transform, int>> _relayered = new List<KeyValuePair<Transform, int>>();
+
+        internal int AnomaliesRevealed;
+
+        /// <summary>
+        /// Is any part of this doppelganger drawn by the player camera as things stand?
+        ///
+        /// This is what separates the ordinary case from the one to leave alone. A doppelganger with a
+        /// human body on NPCNotVisibleInGhostCamera and a second rig on GhostCamera is the "there is
+        /// something else standing there" case, and revealing the second rig is the whole point. One
+        /// whose only renderers are on GhostCamera has no body at all in the normal view - that is the
+        /// fully-invisible one, and re-layering it would conjure a whole character out of nothing.
+        /// </summary>
+        private bool HasVisibleBody(StoreBrowseBehaviour b, int mainMask)
         {
             try
             {
-                CurrentDayManager dm = CurrentDayManager.Instance;
-                if (!Net.Alive(dm)) return 0;
-
-                GameObject lens = dm.anomalyLens;
-                if (lens == null) { Log.Debug("anomaly lens object is null"); return 0; }
-
-                Camera lensCam = lens.GetComponentInChildren<Camera>(true);
-                if (lensCam == null)
+                Renderer[] rends = b.GetComponentsInChildren<Renderer>(true);
+                for (int i = 0; i < rends.Length; i++)
                 {
-                    // Once. This runs on a sweep, and it was drowning the log at one line every two
-                    // seconds - a diagnostic nobody can read is not a diagnostic.
-                    if (!_noCameraLogged)
-                    {
-                        _noCameraLogged = true;
-                        Log.Msg("Anomaly reveal: the lens has no camera, so it is not hiding things by " +
-                                "render layer. Use Dump Anomaly Lens To Log and send the output.");
-                    }
-                    return 0;
+                    Renderer r = rends[i];
+                    if (r == null || !r.enabled || !r.gameObject.activeInHierarchy) continue;
+                    if ((mainMask & (1 << r.gameObject.layer)) != 0) return true;
                 }
-
-                Camera main = Camera.main;
-                if (main == null) return 0;
-                _mainCam = main;
-
-                int extra = lensCam.cullingMask & ~main.cullingMask;
-                if (extra == 0)
-                    Log.Msg("Anomaly reveal: the lens camera renders nothing the main camera does not.");
-                return extra;
             }
-            catch (Exception ex) { Log.Debug("anomaly layers: " + ex.Message); return 0; }
+            catch { }
+            return false;
         }
 
         /// <summary>Every component and camera mask on the lens, so the mechanism stops being a guess.</summary>
@@ -1659,39 +1661,88 @@ namespace ShiftAtMidnightSuite.Modules
         }
 
         /// <summary>
-        /// Puts the lens's own layers onto the player camera, and takes them off again. The mask is
-        /// saved the first time so switching off restores exactly what the game had, rather than
-        /// whatever this thinks the default should be.
+        /// Moves the doppelganger's hidden second rig onto a layer the player camera draws.
+        ///
+        /// The dump settled the mechanism: a doppelganger like Ren Takahashi carries two complete
+        /// rigs - the human body on NPCNotVisibleInGhostCamera, and a second one, "Wade (1)", on
+        /// GhostCamera. The main camera's mask has every layer in that list except GhostCamera, so the
+        /// second rig is there in the scene the whole time and simply is not drawn. The lens is a PDA
+        /// showing a ghost-camera feed, which is why it has no camera of its own and why the earlier
+        /// attempts found nothing.
+        ///
+        /// Re-layering the individual objects rather than adding GhostCamera to the camera mask is
+        /// what makes the exclusions possible at all: a mask is all-or-nothing and would drag in the
+        /// jumpscare and the invisible doppelganger with everything else. Per object, each one can be
+        /// judged on its own. Originals are kept so switching off puts every layer back.
         /// </summary>
         private void ApplyAnomalyMask(bool reveal)
         {
+            ResolveLayers();
+            if (_ghostLayer < 0 || _visibleLayer < 0) return;
+
+            if (!reveal)
+            {
+                RestoreAnomalyLayers();
+                return;
+            }
+
+            Camera main = Camera.main;
+            if (main == null) return;
+            int mask = main.cullingMask;
+
             try
             {
-                if (reveal)
+                List<StoreBrowseBehaviour> all = Net.FindActive<StoreBrowseBehaviour>();
+                for (int i = 0; i < all.Count; i++)
                 {
-                    int extra = AnomalyLayers();
-                    if (extra == 0) return;
+                    StoreBrowseBehaviour b = all[i];
+                    if (!Net.Alive(b)) continue;
 
-                    Camera main = _mainCam;
-                    if (main == null) return;
+                    bool doppel = false;
+                    try { doppel = b.isDoppelganger; } catch { }
+                    if (!doppel) continue;
 
-                    if (!_maskSaved) { _savedCullingMask = main.cullingMask; _maskSaved = true; }
-                    if ((main.cullingMask & extra) != extra)
+                    // The jumpscare creature stays where it is.
+                    bool scare = false;
+                    try { scare = b.GetComponentInChildren<JumpscarePlayer>(true) != null; } catch { }
+                    if (scare) continue;
+
+                    // So does the one with no body in the normal view.
+                    if (!HasVisibleBody(b, mask)) continue;
+
+                    Transform[] parts = null;
+                    try { parts = b.GetComponentsInChildren<Transform>(true); } catch { }
+                    if (parts == null) continue;
+
+                    for (int k = 0; k < parts.Length; k++)
                     {
-                        main.cullingMask |= extra;
-                        Log.Msg("Anomaly reveal: added layers " + MaskNames(extra) + " to the main camera.");
+                        Transform t = parts[k];
+                        if (t == null) continue;
+                        try
+                        {
+                            if (t.gameObject.layer != _ghostLayer) continue;
+                            _relayered.Add(new KeyValuePair<Transform, int>(t, t.gameObject.layer));
+                            t.gameObject.layer = _visibleLayer;
+                            AnomaliesRevealed++;
+                        }
+                        catch { }
                     }
-                    return;
                 }
-
-                if (_maskSaved && _mainCam != null)
-                {
-                    _mainCam.cullingMask = _savedCullingMask;
-                    Log.Msg("Anomaly reveal: main camera layers restored.");
-                }
-                _maskSaved = false;
             }
-            catch (Exception ex) { Log.Debug("anomaly mask: " + ex.Message); }
+            catch (Exception ex) { Log.Debug("anomaly reveal: " + ex.Message); }
+        }
+
+        private void RestoreAnomalyLayers()
+        {
+            if (_relayered.Count == 0) return;
+            for (int i = 0; i < _relayered.Count; i++)
+            {
+                Transform t = _relayered[i].Key;
+                if (t == null) continue;
+                try { t.gameObject.layer = _relayered[i].Value; } catch { }
+            }
+            _relayered.Clear();
+            Log.Msg("Anomaly reveal: layers restored.");
         }
 
         /// <summary>

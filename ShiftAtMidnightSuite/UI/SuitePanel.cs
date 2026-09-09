@@ -939,6 +939,8 @@ namespace ShiftAtMidnightSuite.UI
                         delegate { return c.CleanMoppables; }, delegate (bool v) { c.CleanMoppables = v; });
                     Toggle(root, "Auto Clean Trash", "Limbs and junk left on the floor.",
                         delegate { return c.CleanTrash; }, delegate (bool v) { c.CleanTrash = v; });
+                    Button(root, "Dump Roach & Token State To Log", "Press this while the roach infestation is running. Prints the countdown, every cleanable in the scene, what a roach actually is, and what a floor token is - which is what the auto-cleaner and the token harvest need in order to pick them up.",
+                        delegate { c.DumpRoachState(); });
                     Button(root, "Turn On All Cleaners", "",
                         delegate { c.CleanSpills = true; c.CleanMoppables = true; c.CleanTrash = true; });
                 },

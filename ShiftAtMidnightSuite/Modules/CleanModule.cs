@@ -223,6 +223,170 @@ namespace ShiftAtMidnightSuite.Modules
             catch (Exception ex) { Log.Debug("credit rat: " + ex.Message); }
         }
 
+        /// <summary>
+        /// What a roach actually is.
+        ///
+        /// Moppable carries a "roach" flag, which is why the crediting was hung off it, but the
+        /// infestation is not being picked up - so either the roach is not a Moppable at all, or it is
+        /// one the sweep is refusing. This prints the countdown's own state, every cleanable in the
+        /// scene, and every object whose name mentions a roach along with the components on it. One of
+        /// those three answers it outright.
+        /// </summary>
+        internal void DumpRoachState()
+        {
+            try
+            {
+                List<RoachCountdown> counters = Net.FindActive<RoachCountdown>();
+                for (int i = 0; i < counters.Count; i++)
+                {
+                    RoachCountdown c = counters[i];
+                    if (!Net.Alive(c)) continue;
+                    try
+                    {
+                        Log.Msg("ROACH COUNTDOWN: cur=" + c.curRats + " max=" + c.maxRats +
+                                 " secondsLeft=" + c.secondsRemaining +
+                                " gotObjective=" + c.gotObjective);
+                    }
+                    catch (Exception ex) { Log.Debug("roach countdown: " + ex.Message); }
+                }
+                if (counters.Count == 0) Log.Msg("ROACH COUNTDOWN: none active.");
+
+                List<Moppable> mops = Net.FindActive<Moppable>();
+                int roachMops = 0;
+                for (int i = 0; i < mops.Count; i++)
+                {
+                    Moppable m = mops[i];
+                    if (!Net.Alive(m)) continue;
+                    bool isRoach = false;
+                    try { isRoach = m.roach; } catch { }
+                    if (isRoach) roachMops++;
+                    if (i < 15)
+                    {
+                        string nm = "?";
+                        try { nm = m.gameObject.name + " active=" + m.gameObject.activeInHierarchy; } catch { }
+                        Log.Msg("   MOPPABLE " + nm + " roach=" + isRoach);
+                    }
+                }
+                Log.Msg("CLEANABLES: spills=" + Net.FindActive<Spill>().Count +
+                        " moppables=" + mops.Count + " (roach-flagged " + roachMops + ")" +
+                        " trash=" + Net.FindActive<Trash>().Count);
+
+                // Nothing in the scene is called "roach" - only the countdown UI and the spawn points
+                // are - so the spawned insects are named after their prefab. EventManager holds that
+                // prefab, which gives both the name to hunt for and, from the prefab itself, the
+                // components that say what a roach even is.
+                string roachName = DumpPrefab("roach");
+                string ratName = DumpPrefab("rat");
+
+                HuntFor(roachName);
+                HuntFor(ratName);
+
+                DumpCoins();
+
+                LastDump = "Roach and token state dumped to the log";
+            }
+            catch (Exception ex) { Log.Ex("dump roach state", ex); LastDump = "Dump failed"; }
+        }
+
+        internal string LastDump = "";
+
+        /// <summary>
+        /// Prints the components on EventManager's roach or rat prefab and returns its name. The
+        /// prefab answers "what is a roach" without needing to catch one in the scene first.
+        /// </summary>
+        private static string DumpPrefab(string which)
+        {
+            try
+            {
+                EventManager em = EventManager.Instance;
+                if (!Net.Alive(em)) { Log.Msg("   EventManager not ready."); return null; }
+
+                GameObject prefab = string.Equals(which, "roach", StringComparison.Ordinal) ? em.roach : em.rat;
+                if (prefab == null) { Log.Msg("   EventManager." + which + " is null."); return null; }
+
+                string name = prefab.name;
+                string comps = "";
+                try
+                {
+                    Component[] parts = prefab.GetComponentsInChildren<Component>(true);
+                    for (int k = 0; k < parts.Length; k++)
+                        if (parts[k] != null) comps += " " + parts[k].GetIl2CppType().Name;
+                }
+                catch { }
+                Log.Msg("   PREFAB " + which + " = \"" + name + "\" |" + comps);
+                return name;
+            }
+            catch (Exception ex) { Log.Debug("dump prefab " + which + ": " + ex.Message); return null; }
+        }
+
+        /// <summary>
+        /// What a token lying on the floor is, for the auto-harvest.
+        ///
+        /// StoreManager keeps a coin prefab and an allCoins list, but nothing in the field names says
+        /// how one gets picked up - trigger, interactable, or something the player script owns. Same
+        /// question as the roach and the same answer: print the prefab's components and a live one,
+        /// and then it is known rather than guessed at.
+        /// </summary>
+        private static void DumpCoins()
+        {
+            try
+            {
+                StoreManager sm = StoreManager.Instance;
+                if (!Net.Alive(sm)) { Log.Msg("   StoreManager not ready for the coin dump."); return; }
+
+                GameObject prefab = null;
+                try { prefab = sm.coin; } catch { }
+                if (prefab == null) { Log.Msg("   StoreManager.coin is null."); return; }
+
+                string comps = "";
+                try
+                {
+                    Component[] parts = prefab.GetComponentsInChildren<Component>(true);
+                    for (int k = 0; k < parts.Length; k++)
+                        if (parts[k] != null) comps += " " + parts[k].GetIl2CppType().Name;
+                }
+                catch { }
+                Log.Msg("   PREFAB coin = \"" + prefab.name + "\" |" + comps);
+
+                HuntFor(prefab.name);
+            }
+            catch (Exception ex) { Log.Debug("dump coins: " + ex.Message); }
+        }
+
+        /// <summary>Finds live instances of a prefab by name and prints what they carry.</summary>
+        private static void HuntFor(string prefabName)
+        {
+            if (string.IsNullOrEmpty(prefabName)) return;
+            try
+            {
+                List<Transform> all = Net.FindActive<Transform>();
+                int shown = 0;
+                for (int i = 0; i < all.Count && shown < 6; i++)
+                {
+                    Transform t = all[i];
+                    if (!Net.Alive(t)) continue;
+                    string n;
+                    try { n = t.gameObject.name; } catch { continue; }
+                    if (string.IsNullOrEmpty(n) ||
+                        n.IndexOf(prefabName, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    shown++;
+
+                    string comps = "";
+                    try
+                    {
+                        Component[] parts = t.GetComponents<Component>();
+                        for (int k = 0; k < parts.Length; k++)
+                            if (parts[k] != null) comps += " " + parts[k].GetIl2CppType().Name;
+                    }
+                    catch { }
+                    Log.Msg("   LIVE \"" + n + "\" active=" + t.gameObject.activeInHierarchy +
+                            " layer=" + LayerMask.LayerToName(t.gameObject.layer) + " |" + comps);
+                }
+                Log.Msg("   " + shown + " live object(s) matching \"" + prefabName + "\".");
+            }
+            catch (Exception ex) { Log.Debug("hunt " + prefabName + ": " + ex.Message); }
+        }
+
         /// <summary>Prefer the networked command; fall back to the local request path.</summary>
         private static bool Invoke(Action networked, Action local, string what)
         {

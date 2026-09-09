@@ -21,7 +21,7 @@ namespace ShiftAtMidnightSuite
     /// </remarks>
     public sealed class SuiteMod : ISuitePlugin
     {
-        internal const string Version = "1.0.8";
+        internal const string Version = "1.0.11";
         private const string HarmonyId = "com.xastroboy.shiftatmidnightsuite.plugin";
 
         private IPluginHost _host;

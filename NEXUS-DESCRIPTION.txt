@@ -1,7 +1,3 @@
-================================================================================
- SHIFT AT MIDNIGHT SUITE  -  Nexus Mods page description
- Paste into the Nexus description editor in BBCode mode.
-================================================================================
 
 [size=5][b]Shift At Midnight Suite[/b][/size]
 
@@ -29,9 +25,11 @@ multipliers. No-clip with speed control.
 Max customer patience with a patience allowance. Customers always happy. Honest
 stock rating. Remove store curbs, chain fences, and the forest roof. Silence
 bells. Auto-unlock items after talking. Humans invincible. Instant traps and
-boarding. Auto-fuel cars. No fog, fullbright, brightness boost. Kill extra
-monsters, kill baby dolls only, skip the entity countdown - each manual or
-automatic.
+boarding. Auto-fuel cars. Vents don't kick you out. No hint popups. Instant
+emoti-scope, and reveal the anomaly-lens objects without the lens. No fog,
+fullbright, brightness boost. Kill extra monsters, kill baby dolls only, skip the
+entity countdown and the hunt briefing - each manual or automatic. Fast customer
+report with an adjustable speed.
 
 [b]SPAWNER[/b]
 Every item in the game, searchable. Set the amount, the item storage (ammo it
@@ -76,10 +74,31 @@ spills, moppables, and trash.
 [b]WORLD[/b]
 Unlock the full arsenal, weapon wall always open, gun case for everyone. Skip
 forced text reveal, finish current objective. UNSTICK ME (F2) with an
-auto-unstick on hunt start. Freeze or advance the shift clock. Hunt without
-entities, block hunts entirely, send entities away, force end hunt. Block rake
-spawns. Multiply customers, events, nuisances, and doppelgangers. Always perfect
-reviews. Unlock all hats and cosmetics. UI scale. Log dumps and a profiler.
+auto-unstick on hunt start. Endless Night, plus Call The Bus. Freeze or advance
+the shift clock. Hunt without entities, block hunts entirely, send entities away,
+force end hunt. Block rake spawns. Multiply customers, events, nuisances, and
+doppelgangers. Always perfect reviews. Unlock all hats and cosmetics. UI scale.
+Log dumps and a profiler.
+
+[line]
+
+[size=4][b]Endless Night[/b][/size]
+
+"Your shift is done. Clean up any messes and head to the bus" is what the clock
+reaching zero buys you, and it is not just a banner: the store stops generating,
+the shoppers walk out, and you are stood in a finished night waiting to be allowed
+to leave.
+
+Endless Night lets the clock keep [i]running[/i] and winds it back before it can
+expire, so time still moves and the generation scheduled against it keeps firing.
+Browsing customers are held open too, so a long night stays a busy one instead of
+an empty store with a timer.
+
+Nothing about it blocks the day from completing. That is deliberate - patching the
+ending out would mean boarding the bus did nothing and you were stuck in a night
+you could not leave. The night simply never reaches its own end, and
+[b]CALL THE BUS[/b] brings the bus in whenever you want to go. Board it and the
+night ends exactly as it always did.
 
 [line]
 
@@ -143,14 +162,17 @@ later.
 
 [b]Humans Invincible was shielding people it should not have.[/b] Norbert, the
 robbers and the antler man all wear a customer's scripts, so they matched the
-browse and dialogue tests and became unkillable. Hostility is now decided from the
-game's own flags first - Hittable.dontPunishForKilling and hasBounty are how the
-game marks a target, and StoreBrowseBehaviour.damageToPlayer is only non-zero on
-someone who can hurt you - with an editable name list behind that as a backstop
-(HostileNames in MelonPreferences.cfg). Nuisances are classified before any of it,
-so "wounded, never killed" still holds for them. A dead test that looked for an Npc
-component came out: Npc is a ScriptableObject, so it could never have matched
-anything, and every line in the log agreed.
+browse and dialogue tests and became unkillable. The first attempt at a fix read
+the game's own flags - dontPunishForKilling, hasBounty, damageToPlayer - on the
+theory that those mark something you are meant to kill. They do not: Clyde Dawson
+and the car NPCs carry enough of them to be let through, and both are ordinary
+people. So the decision is by name, from an editable list (HostileNames in
+MelonPreferences.cfg), which is narrow and predictable. Anything the shield does
+protect prints a SHIELDED: line naming it, so if you find someone who should be
+killable you can add them yourself without waiting for a patch. Nuisances are
+classified before any of it, so "wounded, never killed" still holds for them.
+A dead test that looked for an Npc component came out: Npc is a ScriptableObject,
+so it could never have matched anything, and every line in the log agreed.
 
 [b]Event objectives went uncredited when the mod cleaned up.[/b] Cleaning a
 Moppable through Rpc_CMD_Clean removes the roach but never tells the counter, so
@@ -167,9 +189,50 @@ bar was only pushed when InventoryManager.tasking was set, and not every
 hold-to-do sets it. Boarding a door was "fixed" by writing the barricade timer up
 to its delay, which only helps if that timer counts up - if it counts down, that
 write restarted the wait. And completing the bar from a Harmony hook races the
-game's own Update either way. So the hold requirement is now removed at source:
-Interactable.holdInteractableTime is zeroed on every hold-to-use object, and put
-back when the option is switched off.
+game's own Update either way. So the hold requirement is removed at source
+instead: Interactable.holdInteractableTime is zeroed on whatever you are looking
+at, and put back the moment you look away.
+
+[b]Cleanup caused lag spikes on a night with a lot of limbs.[/b] Spills, Moppables
+and Trash were all swept in the same tick - three FindObjectsOfType calls, each
+walking the scene, landing in one frame twice a second. The Trash sweep alone is
+large once the floor is covered, and sharing a frame with the other two is what
+turned a cost into a stutter. They rotate now, one type per pass, for the same
+throughput spread out.
+
+[b]The menu did not block item use.[/b] Clicking a checkbox was also pulling the
+trigger, because the menu is an overlay and the game never learns a click was
+meant for something else. Opening it now takes the game's own item lock, and only
+releases it if the menu is what took it - a conversation holding the lock keeps
+holding it.
+
+[line]
+
+[size=4][b]Other things it stops doing to you[/b][/size]
+
+[b]The end-of-day report crawls.[/b] The customer report deals its folders out one
+at a time and the money counter ticks its way up, each on its own timer. Fast
+Customer Report raises the clock only while that screen is up - restoring whatever
+it replaced - and asks the report for the next card directly, since the pacing is
+not necessarily on a scaled timer. The figures are untouched: this changes how
+long they take to be shown, not what they say.
+
+[b]Hint popups.[/b] "Remember to...", "ask the driver...", all of it. They funnel
+through StoreManager.AddHint, and that is refused outright, so nothing is ever
+queued and nothing ever appears. On by default.
+
+[b]Vents throw you out.[/b] VentTrigger drives that with a push-out animator.
+Switching it off leaves getting in and out working exactly as before - the vent
+just stops deciding you have been in there long enough.
+
+[b]The emoti-scope takes its time.[/b] Instant Emoti-Scope pushes the scan progress
+rather than forcing the result, so the game's own threshold fires and the emotion
+reads out normally, only sooner.
+
+[b]The anomaly lens.[/b] Reveal Anomaly-Lens Objects switches off the ScanOnlyObject
+masking so the second figure on a customer is visible without holding the lens.
+The jumpscare is excluded on purpose - revealing that one means walking around
+with it permanently in shot.
 
 [b]Extra inventory slots were built but unusable.[/b] The HUD widget for a new slot
 was cloned from the Animator's GameObject, then the two Images were looked for
@@ -228,7 +291,14 @@ menu opens instead, and the log tells you which one you got.
 
 [line]
 
+[size=4][b]Source[/b][/size]
+
+[url=https://github.com/xAstroBoy/shift-at-midnight-suite]github.com/xAstroBoy/shift-at-midnight-suite[/url]
+
+[line]
+
 [size=4][b]Credits[/b][/size]
 
 chadi7bark + xAstroBoy
-Requires MelonLoader. Bundles nothing from the game.
+Requires MelonLoader. Ships UniverseLib by sinai-dev, the same file UnityExplorer
+uses. Contains nothing from the game itself.

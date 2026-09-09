@@ -518,6 +518,14 @@ namespace ShiftAtMidnightSuite.UI
                     Toggle(root, "Auto-Fuel Cars", "Opens the fuel flap and fills a car's petrol order as soon as it is asked for.",
                         delegate { return cm.AutoFuel; }, delegate (bool v) { cm.AutoFuel = v; });
 
+                    Header(root, "SCANNING");
+                    Toggle(root, "Instant Emoti-Scope", "The scan bar fills at once. The game's own threshold still fires, so the emotion reads out the usual way, just sooner.",
+                        delegate { return cm.InstantEmotiscope; }, delegate (bool v) { cm.InstantEmotiscope = v; });
+                    Toggle(root, "Reveal Anomaly-Lens Objects", "Shows what you would normally need the anomaly lens to see, without holding the lens. Still being worked out - if it does nothing, use the dump button below.",
+                        delegate { return cm.RevealScanOnly; }, delegate (bool v) { cm.RevealScanOnly = v; });
+                    Button(root, "Dump Anomaly Lens To Log", "Prints the lens object, every component on it, and the camera layer masks. Press it while the lens is up - that output is what makes the reveal above work properly.",
+                        delegate { cm.DumpAnomalyLens(); });
+
                     Header(root, "VISION");
                     Toggle(root, "No Fog", "Removes the fog entirely. Independent of fullbright.",
                         delegate { return cm.NoFog; }, delegate (bool v) { cm.NoFog = v; });

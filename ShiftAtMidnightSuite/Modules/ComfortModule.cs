@@ -282,6 +282,8 @@ namespace ShiftAtMidnightSuite.Modules
             DismissHints(now);
             DriveEndOfDay(now);
             ApplyVentKick(now, VentsDontKick);
+            ApplyScanReveal(now, RevealScanOnly);
+            if (InstantEmotiscope) RushEmotiscope();
 
             HoldBlockers(now);
 
@@ -1337,15 +1339,32 @@ namespace ShiftAtMidnightSuite.Modules
                 }
             }
 
+            // Keying this on eodReportHolder alone was too narrow: the customer report is its own
+            // scroll object, and if that is what is on screen while the holder is not, the boost
+            // never engaged and the report crawled exactly as before. Take either.
             bool showing = false;
             if (Net.Alive(_eodReport))
             {
                 try
                 {
                     GameObject holder = _eodReport.eodReportHolder;
-                    showing = holder != null && holder.activeInHierarchy;
+                    if (holder != null && holder.activeInHierarchy) showing = true;
                 }
                 catch { }
+                if (!showing)
+                {
+                    try
+                    {
+                        Transform scroll = _eodReport.customerReportScrollHolder;
+                        if (scroll != null && scroll.gameObject.activeInHierarchy) showing = true;
+                    }
+                    catch { }
+                }
+                if (!showing)
+                {
+                    // showingRevenue is the amount still being counted out, not a flag.
+                    try { showing = _eodReport.showingRevenue > 0f; } catch { }
+                }
             }
 
             if (showing && FastEndOfDay)
@@ -1356,13 +1375,44 @@ namespace ShiftAtMidnightSuite.Modules
                     _eodBoosted = true;
                     Log.Msg("End-of-day report sped up to " + EndOfDaySpeed.ToString("0.0") + "x.");
                 }
-                float want = Mathf.Clamp(EndOfDaySpeed, 1f, 10f);
+                float want = Mathf.Clamp(EndOfDaySpeed, 1f, 20f);
                 if (!Mathf.Approximately(Time.timeScale, want)) Time.timeScale = want;
+                RushCustomerReport();
+                _nextEodCheck = now + 0.1f;   // while it is up, check often enough to keep pushing
                 return;
             }
 
             RestoreEndOfDay();
         }
+
+        /// <summary>
+        /// Pushes the customer report along by hand.
+        ///
+        /// The report deals its folders out one at a time through ShowNextCharacter, and a night with
+        /// a full roster is a long wait for a list you have already read. Raising the clock helps only
+        /// if that pacing is on a scaled timer, which is not something worth assuming, so ask for the
+        /// next card directly as well.
+        ///
+        /// One per pass, never past the end of npcFolders, and each call boxed in its own try: the
+        /// game is still dealing cards on its own schedule underneath this, and the two must not race
+        /// each other off the end of the array.
+        /// </summary>
+        private void RushCustomerReport()
+        {
+            if (!Net.Alive(_eodReport)) return;
+            try
+            {
+                var folders = _eodReport.npcFolders;
+                if (folders == null) return;
+                if (_eodReport.curCharacterIndex >= folders.Length) return;
+                _eodReport.ShowNextCharacter();
+                _reportCardsPushed++;
+            }
+            catch (Exception ex) { Log.Debug("rush customer report: " + ex.Message); }
+        }
+
+        internal int ReportCardsPushed { get { return _reportCardsPushed; } }
+        private int _reportCardsPushed;
 
         private void RestoreEndOfDay()
         {
@@ -1370,6 +1420,225 @@ namespace ShiftAtMidnightSuite.Modules
             _eodBoosted = false;
             try { Time.timeScale = _eodRestoreTo <= 0f ? 1f : _eodRestoreTo; }
             catch { }
+        }
+
+        // ================================================================ scanning
+
+        /// <summary>
+        /// The emoti-scope finishes its scan at once.
+        ///
+        /// curScan is the progress the scan bar is drawn from, and emotiscopeFound is what the game
+        /// sets when it is satisfied. Pushing the progress rather than forcing the result means the
+        /// game's own threshold fires, and everything that hangs off it - the emotion text, the sound
+        /// - happens the way it normally would, just sooner. Adding a fixed step per frame instead of
+        /// slamming a value keeps this right whether curScan counts seconds or a 0-1 fill.
+        /// </summary>
+        internal bool InstantEmotiscope;
+
+        internal int ScansRushed;
+
+        private void RushEmotiscope()
+        {
+            try
+            {
+                InventoryManager inv = Net.LocalInventory;
+                if (!Net.Alive(inv)) return;
+                if (!inv.emotiscopeScanning || inv.emotiscopeFound) return;
+                inv.curScan += 1f;
+                ScansRushed++;
+            }
+            catch (Exception ex) { Log.Debug("emotiscope: " + ex.Message); }
+        }
+
+        /// <summary>
+        /// Shows what the anomaly lens shows, without the lens.
+        ///
+        /// The first attempt disabled ScanOnlyObject, on the reasoning that a component keeping itself
+        /// updated around a target collider is a mask. It changed nothing on screen, so that was not
+        /// the mechanism, and guessing a second time is not worth anyone's evening.
+        ///
+        /// The lens is far more likely to be a camera that renders layers the main camera does not.
+        /// That can be discovered rather than assumed: find the lens, find its camera, and take the
+        /// layers in its culling mask that the player camera is missing. If the difference is real,
+        /// adding it to the main camera makes the hidden figure visible everywhere. If there is no
+        /// camera, or no difference, that is worth knowing too - it is logged either way, along with
+        /// the layer names, so the next step is informed instead of another guess.
+        ///
+        /// ScanOnlyObject is still switched off alongside it, since it costs nothing and may yet be
+        /// part of the picture.
+        /// </summary>
+        internal bool RevealScanOnly;
+
+        private Camera _mainCam;
+        private int _savedCullingMask;
+        private bool _maskSaved;
+
+        /// <summary>
+        /// Adds whatever the anomaly lens renders and the player camera does not. Returns the layers
+        /// it found, for the log.
+        /// </summary>
+        private int AnomalyLayers()
+        {
+            try
+            {
+                CurrentDayManager dm = CurrentDayManager.Instance;
+                if (!Net.Alive(dm)) return 0;
+
+                GameObject lens = dm.anomalyLens;
+                if (lens == null) { Log.Debug("anomaly lens object is null"); return 0; }
+
+                Camera lensCam = lens.GetComponentInChildren<Camera>(true);
+                if (lensCam == null)
+                {
+                    Log.Msg("Anomaly reveal: the lens has no camera, so it is not hiding things by " +
+                            "render layer. Use Dump Anomaly Lens To Log and send the output.");
+                    return 0;
+                }
+
+                Camera main = Camera.main;
+                if (main == null) return 0;
+                _mainCam = main;
+
+                int extra = lensCam.cullingMask & ~main.cullingMask;
+                if (extra == 0)
+                    Log.Msg("Anomaly reveal: the lens camera renders nothing the main camera does not.");
+                return extra;
+            }
+            catch (Exception ex) { Log.Debug("anomaly layers: " + ex.Message); return 0; }
+        }
+
+        /// <summary>Every component and camera mask on the lens, so the mechanism stops being a guess.</summary>
+        internal void DumpAnomalyLens()
+        {
+            try
+            {
+                CurrentDayManager dm = CurrentDayManager.Instance;
+                if (!Net.Alive(dm)) { LastResult = "CurrentDayManager not ready"; Log.Warn(LastResult + "."); return; }
+
+                GameObject lens = dm.anomalyLens;
+                Log.Msg("ANOMALY LENS: " + (lens == null ? "(null)" : lens.name +
+                        " active=" + lens.activeInHierarchy + " layer=" + LayerMask.LayerToName(lens.layer)));
+
+                if (lens != null)
+                {
+                    Component[] parts = lens.GetComponentsInChildren<Component>(true);
+                    for (int i = 0; i < parts.Length && i < 60; i++)
+                    {
+                        Component c = parts[i];
+                        if (c == null) continue;
+                        string line = "   " + c.GetIl2CppType().Name + " on " + c.gameObject.name +
+                                      " (layer " + LayerMask.LayerToName(c.gameObject.layer) + ")";
+                        Camera cam = c.TryCast<Camera>();
+                        if (cam != null) line += "  CAMERA mask=" + MaskNames(cam.cullingMask) +
+                                                 " depth=" + cam.depth + " clear=" + cam.clearFlags;
+                        Log.Msg(line);
+                    }
+                }
+
+                Camera main = Camera.main;
+                if (main != null) Log.Msg("MAIN CAMERA: " + main.name + " mask=" + MaskNames(main.cullingMask));
+
+                Log.Msg("SCAN-ONLY OBJECTS: " + Net.FindActive<ScanOnlyObject>().Count + " active in the scene.");
+                LastResult = "Anomaly lens dumped to the log";
+            }
+            catch (Exception ex) { Log.Ex("dump anomaly lens", ex); LastResult = "Dump failed"; }
+        }
+
+        private static string MaskNames(int mask)
+        {
+            string s = "";
+            for (int i = 0; i < 32; i++)
+            {
+                if ((mask & (1 << i)) == 0) continue;
+                string n = LayerMask.LayerToName(i);
+                s += (s.Length > 0 ? "," : "") + (string.IsNullOrEmpty(n) ? i.ToString() : n);
+            }
+            return s.Length == 0 ? "(none)" : s;
+        }
+
+        private readonly List<ScanOnlyObject> _scanOnly = new List<ScanOnlyObject>();
+        private float _nextScanOnlySweep;
+        private bool _scanOnlyRevealed;
+
+        private void ApplyScanReveal(float now, bool reveal)
+        {
+            if (!reveal && !_scanOnlyRevealed) return;
+            if (now < _nextScanOnlySweep) return;
+            _nextScanOnlySweep = now + 2f;
+
+            _scanOnly.Clear();
+            _scanOnly.AddRange(Net.FindActive<ScanOnlyObject>());
+            for (int i = 0; i < _scanOnly.Count; i++)
+            {
+                ScanOnlyObject s = _scanOnly[i];
+                if (!Net.Alive(s)) continue;
+                if (reveal && IsJumpscare(s)) continue;   // leave that one where it is
+                try { if (s.enabled == reveal) s.enabled = !reveal; }
+                catch { }
+            }
+            ApplyAnomalyMask(reveal);
+            _scanOnlyRevealed = reveal;
+        }
+
+        /// <summary>
+        /// Puts the lens's own layers onto the player camera, and takes them off again. The mask is
+        /// saved the first time so switching off restores exactly what the game had, rather than
+        /// whatever this thinks the default should be.
+        /// </summary>
+        private void ApplyAnomalyMask(bool reveal)
+        {
+            try
+            {
+                if (reveal)
+                {
+                    int extra = AnomalyLayers();
+                    if (extra == 0) return;
+
+                    Camera main = _mainCam;
+                    if (main == null) return;
+
+                    if (!_maskSaved) { _savedCullingMask = main.cullingMask; _maskSaved = true; }
+                    if ((main.cullingMask & extra) != extra)
+                    {
+                        main.cullingMask |= extra;
+                        Log.Msg("Anomaly reveal: added layers " + MaskNames(extra) + " to the main camera.");
+                    }
+                    return;
+                }
+
+                if (_maskSaved && _mainCam != null)
+                {
+                    _mainCam.cullingMask = _savedCullingMask;
+                    Log.Msg("Anomaly reveal: main camera layers restored.");
+                }
+                _maskSaved = false;
+            }
+            catch (Exception ex) { Log.Debug("anomaly mask: " + ex.Message); }
+        }
+
+        /// <summary>
+        /// The jumpscare is the one scan-only thing worth leaving hidden - revealing it means walking
+        /// around with it permanently in shot, which is neither useful nor the point. Identified by
+        /// its own JumpscarePlayer component, with a name check behind it for anything that carries
+        /// the effect without the script.
+        /// </summary>
+        private static bool IsJumpscare(ScanOnlyObject s)
+        {
+            try { if (s.GetComponentInParent<JumpscarePlayer>() != null) return true; } catch { }
+            try { if (s.GetComponentInChildren<JumpscarePlayer>(true) != null) return true; } catch { }
+
+            try
+            {
+                string n = s.gameObject.name;
+                if (!string.IsNullOrEmpty(n))
+                {
+                    n = n.ToLowerInvariant();
+                    if (n.Contains("jumpscare") || n.Contains("scare")) return true;
+                }
+            }
+            catch { }
+
+            return false;
         }
 
         // ================================================================ vents

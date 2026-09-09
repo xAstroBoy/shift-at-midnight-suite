@@ -841,6 +841,10 @@ namespace ShiftAtMidnightSuite.Modules
 
         private void TickEndlessNight()
         {
+            // Winding the clock back re-crosses whatever the night schedules against it, so the
+            // once-a-night spawns need the game's own "already done" flags enforced against us.
+            RepeatSpawnBlock.Enabled = true;
+
             StoreManager sm = null;
             try { sm = StoreManager.Instance; } catch { }
             if (!Net.Alive(sm)) return;
@@ -1085,12 +1089,15 @@ namespace ShiftAtMidnightSuite.Modules
                 if (WeaponWallAlwaysOpen) OpenWeaponWall(false);
             }
 
+            // Only Endless Night moves the clock backwards, so only it needs the repeat guard.
+            if (RepeatSpawnBlock.Enabled != EndlessNight) RepeatSpawnBlock.Enabled = EndlessNight;
+
             if ((FreezeClock || EndlessNight) && now >= _nextClockTick)
             {
                 _nextClockTick = now + 0.25f;
                 // Freezing pins the clock; endless lets it run and winds it back. Doing both would
                 // pin it at the floor and never wind it, so the explicit freeze wins and says so.
-                if (FreezeClock) TickClock();
+                if (FreezeClock) { RepeatSpawnBlock.Enabled = false; TickClock(); }
                 else TickEndlessNight();
             }
 

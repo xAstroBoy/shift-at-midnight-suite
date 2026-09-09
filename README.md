@@ -74,6 +74,42 @@ old behaviour.
 `Interactable` and filters for gun cases, backed by a once-a-second sweep that also catches cases
 spawned later.
 
+## Later fixes
+
+**Humans Invincible shielded people it should not have.** Norbert, the robbers and the antler man
+wear a customer's scripts, so they matched the browse and dialogue tests and could not be killed.
+The first fix read the game's own flags - `dontPunishForKilling`, `hasBounty`, `damageToPlayer` - on
+the theory that they mark a target. They do not: Clyde Dawson and the car NPCs carry enough of them
+to be let through, and both are ordinary people. The decision is by name now, from `HostileNames` in
+the config, and anything still protected prints a `SHIELDED:` line naming it. A dead
+`GetComponentInParent<Npc>()` test came out - `Npc` is a ScriptableObject, it never matched.
+
+**Event objectives went uncredited.** Cleaning a `Moppable` through `Rpc_CMD_Clean` removes the roach
+but never tells the counter, so the infestation objective sat unfinished over a spotless floor.
+Roaches are counted as they are cleaned, once each; rats likewise.
+
+**Instant Traps missed often.** The fill bar was only pushed when `InventoryManager.tasking` was set,
+which not every hold-to-do sets; the barricade "fix" wrote the timer up to its delay, which restarts
+the wait if that timer counts down; and completing the bar from a hook races the game's own Update
+either way. The hold is removed at source now - `Interactable.holdInteractableTime` zeroed on
+whatever you are looking at, restored when you look away.
+
+**Extra inventory slots were built but unusable.** The new slot widget was cloned from the Animator's
+GameObject and the two Images looked for underneath it - which only holds if the sprites are children
+of the animator, and here they are not. It bailed out silently and `ApplySlots` clamped back to four
+while the log said "Inventory slots set to 4". It clones the smallest object containing all three
+pieces now, grows the per-slot text arrays, repairs itself after a network resync, and says why if it
+still cannot.
+
+**Cleanup spiked on limb-heavy nights.** Spills, Moppables and Trash were swept in one tick - three
+`FindObjectsOfType` calls in a single frame, twice a second. They rotate now, one type per pass.
+Two scans added while fixing other things were part of the problem and are gone: the instant-hold
+sweep walked every `Interactable` in the scene (it reads `InteractManager.curInteractable` instead),
+and the end-of-day check ran `FindObjectsOfType` four times a second for a single-instance type.
+
+**The menu did not block item use.** Clicking a checkbox also pulled the trigger. Opening the menu
+takes `PauseUseItem` now, and only releases it if the menu is what took it.
+
 ## What is new
 
 - **Doppelganger spawner** - 1, 3, or the game's own 8-doppelganger horde.
@@ -93,6 +129,16 @@ spawned later.
 - **Inventory slots** - raise `maxInventorySlots` (capped to what the slot UI can draw).
 - **Freeze item stacks** - grenades, molotovs and bricks stop being consumed.
 - **Doppelganger radar** - counts every doppelganger nearby, not just the one you look at.
+- **Endless Night** - the clock keeps running and is wound back before it can expire, so the shift
+  never reaches its end and the store keeps generating. Nothing blocks the day from completing:
+  **Call The Bus** brings the bus in on demand and boarding it ends the night as normal.
+- **Fast Customer Report** - raises the clock only while the end-of-day screen is up, and asks the
+  report for its next card directly. Figures unchanged, just not a crawl.
+- **No Hint Popups** - `StoreManager.AddHint` refused, so the nags are never queued.
+- **Vents Don't Kick** - disables `VentTrigger.ventPushOutAnim`; entering and leaving still work.
+- **No Hunt Briefing** - closes the hunt explanation panels the moment they appear.
+- **Instant Emoti-Scope** - pushes the scan progress so the game's own threshold fires early.
+- **Reveal Anomaly-Lens Objects** - switches off `ScanOnlyObject` masking, jumpscare excluded.
 
 ## Host vs client
 

@@ -134,6 +134,39 @@ namespace ShiftAtMidnightSuite
         }
     }
 
+    /// <summary>
+    /// Stops the night's one-shot spawns happening twice.
+    ///
+    /// Endless Night winds the shift clock back so the night never expires, and anything the game
+    /// schedules against that clock gets crossed again on the way down - which is why the pet kept
+    /// turning up. The game already has a once-a-night flag for it, alreadySpawnedPet; it simply was
+    /// never written to survive a clock that goes backwards. Honouring that flag is the whole fix,
+    /// and on an ordinary night this changes nothing at all.
+    /// </summary>
+    internal static class RepeatSpawnBlock
+    {
+        internal static bool Enabled;
+        internal static int Blocked;
+    }
+
+    [HarmonyPatch(typeof(CurrentDayManager), nameof(CurrentDayManager.SpawnPet))]
+    internal static class CurrentDayManagerSpawnPetPatch
+    {
+        [HarmonyPrefix]
+        private static bool Prefix(CurrentDayManager __instance)
+        {
+            if (!RepeatSpawnBlock.Enabled) return true;
+            try
+            {
+                if (!__instance.alreadySpawnedPet) return true;
+                RepeatSpawnBlock.Blocked++;
+                Log.Debug("Blocked a repeat pet spawn (total " + RepeatSpawnBlock.Blocked + ").");
+                return false;
+            }
+            catch { return true; }
+        }
+    }
+
     internal static class RakeBlock
     {
         internal static bool Enabled;

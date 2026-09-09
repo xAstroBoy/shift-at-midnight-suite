@@ -55,6 +55,8 @@ namespace ShiftAtMidnightSuite.Modules
             _tracked.Clear();
             _expired.Clear();
             _credited.Clear();
+            _roachesCleaned = 0;
+            _roachesCredited = 0;
             _phase = 0;
         }
 
@@ -81,6 +83,7 @@ namespace ShiftAtMidnightSuite.Modules
                 if (_phase == 2 && CleanTrash) { SweepTrash(now, budget); break; }
             }
 
+            ReconcileRoachCount();
             Prune(now);
         }
 
@@ -123,16 +126,23 @@ namespace ShiftAtMidnightSuite.Modules
                 if (!Eligible(id, now) || budget <= 0) continue;
 
                 // Whether this mess is a roach has to be read before it is cleaned - cleaning is what
-                // tears the object down, and the field is gone with it.
+                // tears the object down, and the flag goes with it. The prefab is called "Cockroach",
+                // so the name is the reliable half; the flag is checked too in case it is set on
+                // something the name does not cover.
                 bool isRoach = false;
                 try { isRoach = m.roach; } catch { }
+                if (!isRoach)
+                {
+                    try { isRoach = m.gameObject.name.StartsWith("Cockroach", StringComparison.OrdinalIgnoreCase); }
+                    catch { }
+                }
 
                 if (Invoke(m.Rpc_CMD_Clean, m.RequestClean, "Moppable"))
                 {
                     MarkAttempted(id, now);
                     CleanedMoppables++;
                     budget--;
-                    if (isRoach) CreditRoach(id);
+                    if (isRoach) _roachesCleaned++;
                 }
             }
         }
@@ -158,10 +168,6 @@ namespace ShiftAtMidnightSuite.Modules
                 try { if (t.dontCountTowardHygiene) continue; }
                 catch { }
 
-                bool isRat = false;
-                try { isRat = t.gameObject.name.StartsWith("Rat", StringComparison.OrdinalIgnoreCase); }
-                catch { }
-
                 bool ok = false;
                 try { t.Delete(); ok = true; }
                 catch (Exception ex) { Log.Debug("Trash.Delete failed: " + ex.Message); }
@@ -171,7 +177,6 @@ namespace ShiftAtMidnightSuite.Modules
                     MarkAttempted(id, now);
                     CleanedTrash++;
                     budget--;
-                    if (isRat) CreditRat(id);
                 }
             }
         }
@@ -187,6 +192,71 @@ namespace ShiftAtMidnightSuite.Modules
 
         internal int CreditedRoaches;
         internal int CreditedRats;
+
+        /// <summary>Roaches this night's cleaning has removed, whether or not anything was counting.</summary>
+        private int _roachesCleaned;
+
+        /// <summary>How many of those the countdown has been told about.</summary>
+        private int _roachesCredited;
+
+        private const int MaxCreditsPerTick = 4;
+
+        /// <summary>
+        /// Keeps the roach objective honest about roaches the cleaner already took.
+        ///
+        /// The infestation counter is armed when the event starts, but the cleaner is always running -
+        /// so on a night where roaches were on the floor first, all of them were mopped before
+        /// RoachCountdown existed. The count then sits at 0 of 23 with nothing left in the store to
+        /// find, and the objective cannot be finished at all.
+        ///
+        /// Counting what was cleaned and settling up once a counter appears fixes both orderings at
+        /// once: roaches cleaned during the event are credited as they go, and roaches cleaned before
+        /// it started are credited the moment it starts. Reconciling against the counter's own value
+        /// rather than firing blind is what stops it double-counting when the game credits a clean by
+        /// itself - if curRats already moved, there is no gap to close.
+        /// </summary>
+        private void ReconcileRoachCount()
+        {
+            if (_roachesCleaned <= _roachesCredited) return;
+
+            try
+            {
+                List<RoachCountdown> counters = Net.FindActive<RoachCountdown>();
+                if (counters.Count == 0) return;             // nothing to tell yet - keep the tally
+
+                RoachCountdown c = null;
+                for (int i = 0; i < counters.Count && c == null; i++)
+                    if (Net.Alive(counters[i])) c = counters[i];
+                if (c == null) return;
+
+                int cur, max;
+                bool done;
+                try { cur = c.curRats; max = c.maxRats; done = c.gotObjective; }
+                catch { return; }
+                if (done) { _roachesCredited = _roachesCleaned; return; }
+
+                // The counter may have moved on its own; only close the gap that is actually there.
+                int owed = _roachesCleaned - _roachesCredited;
+                int room = max - cur;
+                if (room < owed) owed = room;
+                if (owed <= 0) { _roachesCredited = _roachesCleaned; return; }
+                if (owed > MaxCreditsPerTick) owed = MaxCreditsPerTick;
+
+                StoreManager sm = StoreManager.Instance;
+                if (!Net.Alive(sm)) return;
+
+                for (int i = 0; i < owed; i++)
+                {
+                    if (Net.IsHost) sm.Rpc_RoachKilled();
+                    else sm.Rpc_CMD_RoachKilled();
+                    _roachesCredited++;
+                    CreditedRoaches++;
+                }
+                Log.Msg("Roach objective: credited " + owed + " already-cleaned roach(es) (" +
+                        _roachesCredited + " of " + _roachesCleaned + " settled).");
+            }
+            catch (Exception ex) { Log.Debug("reconcile roaches: " + ex.Message); }
+        }
 
         /// <summary>
         /// The roach and rat infestations are objectives, not just mess: the game counts them as they

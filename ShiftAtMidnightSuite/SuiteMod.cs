@@ -21,7 +21,7 @@ namespace ShiftAtMidnightSuite
     /// </remarks>
     public sealed class SuiteMod : ISuitePlugin
     {
-        internal const string Version = "1.0.11";
+        internal const string Version = "1.0.22";
         private const string HarmonyId = "com.xastroboy.shiftatmidnightsuite.plugin";
 
         private IPluginHost _host;
@@ -59,14 +59,14 @@ namespace ShiftAtMidnightSuite
         private MelonPreferences_Category _cfg;
         private MelonPreferences_Entry<bool> _pGunCase, _pMulCust, _pMulEvent, _pMulNuisance, _pMulDoppel, _pVerbose, _pWeaponWall, _pNoRake, _pRefresh, _pNoHuntEnt, _pNoHunt, _pReviews, _pSkipRead, _pAutoBag, _pUnbagged, _pClearLeftovers, _pSelfCheckout, _pFreezeClock, _pDetector, _pRadar, _pEvidence, _pBadge, _pProfiler,
                                           _pPatience, _pHappy, _pHonestStock, _pInstantTask, _pAutoFuel, _pKillExtras, _pBright,
-                                          _pSkipCountdown, _pSkipBriefing, _pFastEod, _pVentsDontKick, _pNoHints, _pEndlessNight, _pInstantScope, _pRevealScan, _pStamina, _pGod, _pMoney, _pAmmo, _pFreezeItems,
+                                          _pSkipCountdown, _pSkipBriefing, _pFastEod, _pVentsDontKick, _pNoHints, _pEndlessNight, _pInstantScope, _pRevealScan, _pHarvestTokens, _pMoonJump, _pNoFarClip, _pStamina, _pGod, _pMoney, _pAmmo, _pFreezeItems,
                                           _pCleanSpills, _pCleanMop, _pCleanTrash, _pAutoStock, _pStockCrate, _pGrenadeFlamer, _pSilenceBells, _pNoBarriers, _pNoFences, _pNoRoof, _pAutoUnlock, _pHumanShield, _pNoFog, _pWoundFlee;
         private MelonPreferences_Entry<int> _pCustFactor, _pEventFactor, _pMaxSlots, _pNuisanceFactor, _pDoppelCount, _pEndlessTopUp;
-        private MelonPreferences_Entry<float> _pEodSpeed;
+        private MelonPreferences_Entry<float> _pEodSpeed, _pFarClip;
         private MelonPreferences_Entry<float> _pPatienceFactor, _pBrightBoost, _pSpeedMul, _pJumpMul, _pNoclipSpeed,
                                                  _pGrenadeRate, _pGrenadeForce;
         private MelonPreferences_Entry<int> _pAmmoTarget, _pFundsFloor, _pSpawnAmount, _pGrenadeBurst;
-        private MelonPreferences_Entry<string> _pToggleKey, _pUnstickKey, _pHostileNames;
+        private MelonPreferences_Entry<string> _pToggleKey, _pUnstickKey, _pHostileNames, _pBrightPreset;
         private MelonPreferences_Entry<float> _pUiScale, _pOverlayScale;
 
         /// <summary>Menu hotkey. Configurable because F1 is a popular key for other overlays.</summary>
@@ -115,6 +115,44 @@ namespace ShiftAtMidnightSuite
             return _cfg.CreateEntry(id, fallback, description);
         }
 
+
+        /// <summary>
+        /// The captured fullbright look, as "r,g,b,intensity,exposure". Kept as one string so adding
+        /// it costs a single preference rather than five, and so a malformed line just falls back to
+        /// the built-in look instead of half-loading.
+        /// </summary>
+        private void LoadBrightPreset(string raw)
+        {
+            Comfort.HasPreset = false;
+            if (string.IsNullOrEmpty(raw)) return;
+
+            string[] parts = raw.Split(',');
+            if (parts.Length != 5) return;
+
+            float r, g, b, intensity, exposure;
+            if (!float.TryParse(parts[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out r)) return;
+            if (!float.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out g)) return;
+            if (!float.TryParse(parts[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out b)) return;
+            if (!float.TryParse(parts[3], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out intensity)) return;
+            if (!float.TryParse(parts[4], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out exposure)) return;
+
+            Comfort.PresetAmbient = new Color(r, g, b, 1f);
+            Comfort.PresetIntensity = intensity;
+            Comfort.PresetExposure = exposure;
+            Comfort.HasPreset = true;
+        }
+
+        private string SaveBrightPreset()
+        {
+            if (!Comfort.HasPreset) return "";
+            System.Globalization.CultureInfo ci = System.Globalization.CultureInfo.InvariantCulture;
+            return Comfort.PresetAmbient.r.ToString("0.####", ci) + "," +
+                   Comfort.PresetAmbient.g.ToString("0.####", ci) + "," +
+                   Comfort.PresetAmbient.b.ToString("0.####", ci) + "," +
+                   Comfort.PresetIntensity.ToString("0.####", ci) + "," +
+                   Comfort.PresetExposure.ToString("0.####", ci);
+        }
+
         private void LoadPrefs()
         {
             try
@@ -153,6 +191,7 @@ namespace ShiftAtMidnightSuite
                 _pNoFog = Entry("NoFog", true, "Remove the fog entirely");
                 _pBright = Entry("Fullbright", false, "Flat ambient light, no fog, extra exposure");
                 _pPatienceFactor = Entry("PatienceFactor", 3f, "Multiplies each customer's own patience allowance");
+                _pBrightPreset = Entry("FullbrightPreset", "", "Captured look: r,g,b,intensity,exposure. Empty = built-in.");
                 _pBrightBoost = Entry("FullbrightBoost", 2.5f, "Extra exposure in EV while fullbright is on");
                 _pSelfCheckout = Entry("NonDoppelsSelfCheckout", false, "Ordinary customers complete their own transaction");
                 _pClearLeftovers = Entry("ClearCounterLeftovers", true, "Remove unbagged items from the counter once the customer is done");
@@ -162,6 +201,10 @@ namespace ShiftAtMidnightSuite
                 _pEodSpeed = Entry("EndOfDaySpeed", 4f, "How much faster the end-of-day report runs");
                 _pVentsDontKick = Entry("VentsDontKick", true, "Vents stop throwing you out for staying in them");
                 _pNoHints = Entry("AutoDismissHints", true, "Block the HUD hint popups entirely");
+                _pNoFarClip = Entry("NoDistanceClipping", false, "Raise every camera's far clip plane");
+                _pFarClip = Entry("ViewDistance", 5000f, "Far clip plane distance in metres");
+                _pMoonJump = Entry("MoonJump", false, "Jump again in mid-air; hold to keep rising");
+                _pHarvestTokens = Entry("AutoHarvestTokens", true, "Pick up loose arcade tokens automatically");
                 _pInstantScope = Entry("InstantEmotiscope", true, "The emoti-scope finishes its scan at once");
                 _pRevealScan = Entry("RevealScanOnly", false, "Show the objects that normally need the anomaly lens");
                 _pEndlessNight = Entry("EndlessNight", false, "The shift clock never runs out; call the bus when you want to leave");
@@ -261,6 +304,10 @@ namespace ShiftAtMidnightSuite
                 Comfort.EndOfDaySpeed = Mathf.Clamp(_pEodSpeed.Value, 1f, 10f);
                 Comfort.VentsDontKick = _pVentsDontKick.Value;
                 Comfort.AutoDismissHints = _pNoHints.Value;
+                Comfort.NoFarClip = _pNoFarClip.Value;
+                Comfort.FarClipDistance = Mathf.Clamp(_pFarClip.Value, 100f, 20000f);
+                Player.MoonJump = _pMoonJump.Value;
+                Comfort.AutoHarvestTokens = _pHarvestTokens.Value;
                 Comfort.InstantEmotiscope = _pInstantScope.Value;
                 Comfort.RevealScanOnly = _pRevealScan.Value;
                 World.EndlessNight = _pEndlessNight.Value;
@@ -302,6 +349,7 @@ namespace ShiftAtMidnightSuite
                 WeaponMods.LaunchForce = Mathf.Clamp(_pGrenadeForce.Value, 5f, 120f);
                 Comfort.PatienceFactor = Mathf.Clamp(_pPatienceFactor.Value, 1f, 20f);
                 Comfort.BrightBoost = Mathf.Clamp(_pBrightBoost.Value, 0f, 8f);
+                LoadBrightPreset(_pBrightPreset.Value);
                 Comfort.NoFog = _pNoFog.Value;
                 Comfort.Fullbright = _pBright.Value;
                 Counter.ClearLeftovers = _pClearLeftovers.Value;
@@ -321,7 +369,9 @@ namespace ShiftAtMidnightSuite
             }
         }
 
-        private void SavePrefs()
+        /// <summary>Write settings out now. Buttons that change a stored value call this - a
+        /// capture that is only in memory is lost the moment the game closes.</summary>
+        internal void SavePrefs()
         {
             if (_cfg == null) return;
             try
@@ -361,6 +411,10 @@ namespace ShiftAtMidnightSuite
                 _pEodSpeed.Value = Comfort.EndOfDaySpeed;
                 _pVentsDontKick.Value = Comfort.VentsDontKick;
                 _pNoHints.Value = Comfort.AutoDismissHints;
+                _pNoFarClip.Value = Comfort.NoFarClip;
+                _pFarClip.Value = Comfort.FarClipDistance;
+                _pMoonJump.Value = Player.MoonJump;
+                _pHarvestTokens.Value = Comfort.AutoHarvestTokens;
                 _pInstantScope.Value = Comfort.InstantEmotiscope;
                 _pRevealScan.Value = Comfort.RevealScanOnly;
                 _pEndlessNight.Value = World.EndlessNight;
@@ -402,6 +456,7 @@ namespace ShiftAtMidnightSuite
                 _pNoFog.Value = Comfort.NoFog;
                 _pPatienceFactor.Value = Comfort.PatienceFactor;
                 _pBrightBoost.Value = Comfort.BrightBoost;
+                _pBrightPreset.Value = SaveBrightPreset();
                 _pClearLeftovers.Value = Counter.ClearLeftovers;
                 _pSelfCheckout.Value = Counter.SelfCheckoutNormals;
                 _pProfiler.Value = Profiler.Enabled;
@@ -511,6 +566,7 @@ namespace ShiftAtMidnightSuite
                 // the menu appears rather than one behind it.
                 bool menuOpen = (_ui != null && _ui.Visible) || (_menu != null && _menu.Visible);
                 Comfort.MenuOpen = menuOpen;
+                Player.MenuOpen = menuOpen;
 
                 // The cheats only need to re-assert a few times a second; per-frame was pure waste.
                 if (Player.AnyActive && Time.unscaledTime >= _nextPlayerTick)
@@ -519,6 +575,7 @@ namespace ShiftAtMidnightSuite
                     using (Profiler.Begin("Player.Tick")) Player.Tick();
                 }
                 if (Player.Noclip) Player.RunNoclip();
+                if (Player.MoonJump) Player.RunMoonJump();
 
                 using (Profiler.Begin("Spawner.Tick")) Spawner.Tick();
                 using (Profiler.Begin("Clean.Tick")) Clean.Tick();

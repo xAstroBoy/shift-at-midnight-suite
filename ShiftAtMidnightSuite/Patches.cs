@@ -167,6 +167,146 @@ namespace ShiftAtMidnightSuite
         }
     }
 
+    /// <summary>
+    /// Refuses to let the night end.
+    ///
+    /// Chasing whichever clock runs the shift was the wrong level to work at - the field that looked
+    /// like it turned out to run the entity countdown instead, and lengthening a timer would only
+    /// ever have moved the problem anyway. The ending itself is one call, StoreManager.CompleteDay,
+    /// with EODScene behind it, so refusing those two stops the night regardless of what decided it
+    /// was over: the clock, the occurrence queue, or anything else.
+    ///
+    /// Bypass exists because a blocked ending has to stay endable. End Night Now lifts it for exactly
+    /// one call, so the same path the bus uses still works when you actually want to go.
+    /// </summary>
+    internal static class DayEndBlock
+    {
+        internal static bool Enabled;
+        internal static bool Bypass;
+        internal static int Blocked;
+
+        /// <summary>
+        /// Set once the player has asked to end the night, and left set until the scene changes.
+        ///
+        /// Bypassing only for the duration of the CompleteDay call is not enough and produced a black
+        /// screen: CompleteDay does not run the ending, it schedules EODScene about a second later.
+        /// By the time that landed the bypass had already been put back, so the fade happened and the
+        /// report never loaded. An ending is a sequence, not a call, so the gate has to stay open for
+        /// the whole of it - the new night re-arms this.
+        /// </summary>
+        internal static bool EndingInProgress;
+
+        internal static bool Allow(string where)
+        {
+            if (!Enabled || Bypass || EndingInProgress) return true;
+            Blocked++;
+            if (Blocked == 1 || Blocked % 20 == 0)
+                Log.Msg("Endless night: held the shift open at " + where + " (" + Blocked + ").");
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(StoreManager), nameof(StoreManager.CompleteDay))]
+    internal static class StoreManagerCompleteDayPatch
+    {
+        [HarmonyPrefix]
+        private static bool Prefix() { return DayEndBlock.Allow("CompleteDay"); }
+    }
+
+    /// <summary>
+    /// Boarding the bus is a request to go home, and an endless night has to honour it.
+    ///
+    /// "Head home" on the bus door marks the player complete, and everything after that runs through
+    /// CheckWhosCompletedDay - so this method being called at all means somebody has chosen to end
+    /// the shift. Opening the gate here is what makes the bus work while the night is being held
+    /// open; without it the ending was refused a step later and the bus simply did nothing.
+    ///
+    /// It stays open until the scene changes, for the same reason End Night Now does: the ending is a
+    /// sequence, and closing the gate part-way through it is what produced a black screen.
+    /// </summary>
+    [HarmonyPatch(typeof(StoreManager), nameof(StoreManager.CheckWhosCompletedDay))]
+    internal static class StoreManagerCheckCompletedPatch
+    {
+        [HarmonyPrefix]
+        private static void Prefix()
+        {
+            if (!DayEndBlock.Enabled || DayEndBlock.EndingInProgress) return;
+            DayEndBlock.EndingInProgress = true;
+            Log.Msg("Endless night: someone boarded the bus, so the shift is allowed to end.");
+        }
+    }
+
+    [HarmonyPatch(typeof(StoreManager), nameof(StoreManager.EODScene))]
+    internal static class StoreManagerEodScenePatch
+    {
+        [HarmonyPrefix]
+        private static bool Prefix() { return DayEndBlock.Allow("EODScene"); }
+    }
+
+    /// <summary>
+    /// The "your shift is done, head to the bus" line is an objective like any other, set through
+    /// StoreManager.NewObjective(id, key). Which id carries it is not something to guess at, so every
+    /// objective is logged once by id and key - that names it - and any whose text matches
+    /// EndlessNightMutedObjectives is suppressed. The list is editable for the same reason
+    /// HostileNames is: a miss should cost a config line, not a rebuild.
+    /// </summary>
+    internal static class ObjectiveMute
+    {
+        internal static bool Enabled;
+        internal static int Muted;
+
+        // "EOD Bus" is the real one, read off the OBJECTIVE log line; the rest are kept as a net.
+        internal const string DefaultMuted = "eodbus,shiftdone,shift_done,shiftover,endshift,gotothebus,headtothebus,catchthebus";
+
+        internal static string Names = DefaultMuted;
+
+        private static string _parsedFrom;
+        private static string[] _parts = new string[0];
+
+        private static readonly System.Collections.Generic.HashSet<string> _seen =
+            new System.Collections.Generic.HashSet<string>();
+
+        internal static bool Allow(string id, string key)
+        {
+            string label = (id ?? "") + " / " + (key ?? "");
+            if (_seen.Add(label)) Log.Msg("OBJECTIVE: id=\"" + id + "\" key=\"" + key + "\"");
+
+            if (!Enabled) return true;
+
+            string src = Names ?? "";
+            if (!string.Equals(src, _parsedFrom, StringComparison.Ordinal))
+            {
+                _parsedFrom = src;
+                var kept = new System.Collections.Generic.List<string>();
+                string[] raw = src.Split(',');
+                for (int i = 0; i < raw.Length; i++)
+                {
+                    string p = raw[i].Trim().ToLowerInvariant().Replace(" ", "").Replace("_", "");
+                    if (p.Length > 0) kept.Add(p);
+                }
+                _parts = kept.ToArray();
+            }
+            if (_parts.Length == 0) return true;
+
+            string flat = label.ToLowerInvariant().Replace(" ", "").Replace("_", "");
+            for (int i = 0; i < _parts.Length; i++)
+            {
+                if (flat.IndexOf(_parts[i], StringComparison.Ordinal) < 0) continue;
+                Muted++;
+                Log.Msg("Endless night: suppressed the \"" + id + "\" objective.");
+                return false;
+            }
+            return true;
+        }
+    }
+
+    [HarmonyPatch(typeof(StoreManager), nameof(StoreManager.NewObjective))]
+    internal static class StoreManagerNewObjectivePatch
+    {
+        [HarmonyPrefix]
+        private static bool Prefix(string id, string key) { return ObjectiveMute.Allow(id, key); }
+    }
+
     internal static class RakeBlock
     {
         internal static bool Enabled;

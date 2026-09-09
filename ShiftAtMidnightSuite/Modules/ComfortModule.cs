@@ -175,7 +175,7 @@ namespace ShiftAtMidnightSuite.Modules
             {
                 return MaxPatience || HappyCustomers || HonestStock || InstantTasks || AutoFuel || AutoUnlockInventory
                        || AutoKillExtras || AutoSkipHuntCountdown || SkipHuntBriefing || FastEndOfDay
-                       || VentsDontKick || _eodBoosted || _ventsFreed || _silenceBells || !_bellsApplied
+                       || VentsDontKick || AutoHarvestTokens || NoFarClip || _clipsRaised || _eodBoosted || _ventsFreed || _silenceBells || !_bellsApplied
                        || _curbGroup.Active || _fenceGroup.Active || _roofGroup.Active || _noFog
                        || _brightOn;
             }
@@ -224,6 +224,11 @@ namespace ShiftAtMidnightSuite.Modules
             // Never carry a raised clock across a scene load - the report that justified it is gone.
             RestoreEndOfDay();
             _nextEodCheck = 0f;
+            _coinsTaken.Clear();
+            _nextCoinSweep = 0f;
+            _farClips.Clear();
+            _clipsRaised = false;
+            _nextClipSweep = 0f;
             _vents.Clear();
             _ventsFreed = false;
             _nextVentScan = 0f;
@@ -233,6 +238,7 @@ namespace ShiftAtMidnightSuite.Modules
             ReArm(_fenceGroup);
             ReArm(_roofGroup);
             _nextBlockerSweep = 0f;
+            _graded.Clear();
             _fogCaptured = false;
             if (_noFog) { CaptureFog(); ApplyNoFog(); }
 
@@ -283,9 +289,11 @@ namespace ShiftAtMidnightSuite.Modules
 
             ApplyMenuItemLock();
             DismissHints(now);
+            if (AutoHarvestTokens) HarvestTokens(now);
             DriveEndOfDay(now);
             ApplyVentKick(now, VentsDontKick);
             ApplyScanReveal(now, RevealScanOnly);
+            ApplyFarClip(now, NoFarClip);
             if (InstantEmotiscope) RushEmotiscope();
 
             HoldBlockers(now);
@@ -1277,6 +1285,17 @@ namespace ShiftAtMidnightSuite.Modules
                 try { hm.CancelInvoke("SpawnEnemies"); }
                 catch (Exception ex) { Log.Debug("CancelInvoke SpawnEnemies: " + ex.Message); }
 
+                // And drop the announced countdown to nothing. StoreManager.secondsLeft is what the
+                // "the entity will arrive in N seconds" line reads from - that is what that field
+                // actually is - so leaving it high means the entity turns up while the warning is
+                // still counting down at you.
+                try
+                {
+                    StoreManager sm = StoreManager.Instance;
+                    if (Net.Alive(sm) && sm.secondsLeft > 0) sm.secondsLeft = 0;
+                }
+                catch (Exception ex) { Log.Debug("clear entity countdown: " + ex.Message); }
+
                 hm.SpawnEnemies();
                 LastResult = "Entity countdown skipped";
                 Log.Msg(LastResult + ".");
@@ -1813,6 +1832,116 @@ namespace ShiftAtMidnightSuite.Modules
             return false;
         }
 
+        // ================================================================ view distance
+
+        /// <summary>
+        /// Stops distant geometry being clipped away.
+        ///
+        /// The far clip plane is per camera and the game sets it low enough that the forest and the
+        /// far side of the lot vanish. Raising it is the whole fix, but it has to be done to every
+        /// camera and re-done as new ones appear - the ghost feed, the spectator view and the EOD
+        /// scene all bring their own. Each camera's own value is kept so switching off restores what
+        /// it shipped with rather than a number chosen here.
+        /// </summary>
+        internal bool NoFarClip;
+
+        /// <summary>How far to see, in metres. Depth precision gets worse the higher this goes.</summary>
+        internal float FarClipDistance = 5000f;
+
+        private readonly Dictionary<int, float> _farClips = new Dictionary<int, float>();
+        private float _nextClipSweep;
+        private bool _clipsRaised;
+
+        private void ApplyFarClip(float now, bool raise)
+        {
+            if (!raise && !_clipsRaised) return;
+            if (now < _nextClipSweep) return;
+            _nextClipSweep = now + 2f;
+
+            List<Camera> cams = Net.FindActive<Camera>();
+            for (int i = 0; i < cams.Count; i++)
+            {
+                Camera cam = cams[i];
+                if (!Net.Alive(cam)) continue;
+                try
+                {
+                    int id = cam.GetInstanceID();
+                    if (raise)
+                    {
+                        if (!_farClips.ContainsKey(id)) _farClips[id] = cam.farClipPlane;
+                        float want = Mathf.Clamp(FarClipDistance, 100f, 20000f);
+                        if (cam.farClipPlane < want) cam.farClipPlane = want;
+                    }
+                    else
+                    {
+                        float original;
+                        if (_farClips.TryGetValue(id, out original)) cam.farClipPlane = original;
+                    }
+                }
+                catch { }
+            }
+
+            if (!raise) _farClips.Clear();
+            _clipsRaised = raise;
+        }
+
+        // ================================================================ tokens
+
+        /// <summary>
+        /// Picks the loose arcade tokens up off the floor.
+        ///
+        /// The coin prefab is called "Coin" and carries a PickupObject, which is an Interactable - so
+        /// the pickup already exists and is the same call the game makes when you walk up and press
+        /// the key. Going through Interact rather than deleting the coin and adding a token by hand is
+        /// the same lesson the spawner and the trash cleaner both taught: the game's own path does the
+        /// networking, the balance and the sound, and nothing has to be reimplemented or kept in sync.
+        /// </summary>
+        internal bool AutoHarvestTokens;
+
+        internal int TokensHarvested;
+
+        private float _nextCoinSweep;
+        private readonly HashSet<int> _coinsTaken = new HashSet<int>();
+
+        private void HarvestTokens(float now)
+        {
+            if (now < _nextCoinSweep) return;
+            _nextCoinSweep = now + 1f;
+
+            PlayerManager pm = Net.LocalPlayer;
+            if (!Net.Alive(pm)) return;
+
+            try
+            {
+                List<PickupObject> all = Net.FindActive<PickupObject>();
+                int taken = 0;
+
+                for (int i = 0; i < all.Count && taken < 8; i++)
+                {
+                    PickupObject p = all[i];
+                    if (!Net.Alive(p)) continue;
+
+                    try
+                    {
+                        if (!p.gameObject.activeInHierarchy) continue;
+                        if (!p.gameObject.name.StartsWith("Coin", StringComparison.OrdinalIgnoreCase)) continue;
+
+                        // A coin that refuses to go is not worth asking about twice a second.
+                        int id = p.GetInstanceID();
+                        if (!_coinsTaken.Add(id)) continue;
+
+                        p.Interact(pm);
+                        taken++;
+                        TokensHarvested++;
+                    }
+                    catch (Exception ex) { Log.Debug("coin pickup: " + ex.Message); }
+                }
+
+                if (taken > 0) Log.Msg("Collected " + taken + " token(s) (" + TokensHarvested + " tonight).");
+            }
+            catch (Exception ex) { Log.Debug("harvest tokens: " + ex.Message); }
+        }
+
         // ================================================================ vents
 
         private readonly List<VentTrigger> _vents = new List<VentTrigger>();
@@ -1890,10 +2019,7 @@ namespace ShiftAtMidnightSuite.Modules
         private Color _savedAmbientLight;
         private float _savedAmbientIntensity;
         private bool _savedFog;
-        private ColorAdjustments _colorAdj;
         private float _nextVolumeScan;
-        private float _savedExposure;
-        private bool _savedExposureOverride;
 
         internal bool Fullbright
         {
@@ -1927,8 +2053,8 @@ namespace ShiftAtMidnightSuite.Modules
                 }
 
                 RenderSettings.ambientMode = AmbientMode.Flat;
-                RenderSettings.ambientLight = new Color(0.92f, 0.92f, 0.95f, 1f);
-                RenderSettings.ambientIntensity = 1f;
+                RenderSettings.ambientLight = HasPreset ? PresetAmbient : new Color(0.92f, 0.92f, 0.95f, 1f);
+                RenderSettings.ambientIntensity = HasPreset ? PresetIntensity : 1f;
                 RenderSettings.fog = false;
             }
             catch (Exception ex) { Log.Debug("ambient: " + ex.Message); }
@@ -1944,73 +2070,249 @@ namespace ShiftAtMidnightSuite.Modules
             try
             {
                 if (RenderSettings.fog) RenderSettings.fog = false;
-                if (RenderSettings.ambientIntensity < 1f) RenderSettings.ambientIntensity = 1f;
                 if (RenderSettings.ambientMode != AmbientMode.Flat) RenderSettings.ambientMode = AmbientMode.Flat;
+
+                float wantIntensity = HasPreset ? PresetIntensity : 1f;
+                if (Mathf.Abs(RenderSettings.ambientIntensity - wantIntensity) > 0.01f)
+                    RenderSettings.ambientIntensity = wantIntensity;
+
+                Color wantAmbient = HasPreset ? PresetAmbient : new Color(0.92f, 0.92f, 0.95f, 1f);
+                if (RenderSettings.ambientLight != wantAmbient) RenderSettings.ambientLight = wantAmbient;
             }
             catch { }
 
-            if ((_colorAdj == null || !Net.Alive(_colorAdj)) && Time.unscaledTime >= _nextVolumeScan)
+            // Re-applied on a timer rather than only when the cached volume died. A volume that has
+            // been outvoted by a zone is still perfectly alive, so the old condition never fired and
+            // the boost stayed lost until a scene change. Zones also bring their volumes with them, so
+            // this doubles as picking up ones that did not exist when fullbright was switched on.
+            if (Time.unscaledTime >= _nextVolumeScan)
             {
-                _nextVolumeScan = Time.unscaledTime + 3f;
+                _nextVolumeScan = Time.unscaledTime + 0.5f;
                 ApplyExposure();
             }
         }
 
-        private void ApplyExposure()
+        /// <summary>One volume's grading, and the exposure it had before we touched it.</summary>
+        private sealed class Graded
+        {
+            internal ColorAdjustments Adjustments;
+            internal float SavedExposure;
+            internal bool SavedOverride;
+        }
+
+        private readonly Dictionary<int, Graded> _graded = new Dictionary<int, Graded>();
+
+        /// <summary>
+        /// Raises exposure on every grading volume in the scene, not just the winning global one.
+        ///
+        /// This used to pick the highest-priority volume with isGlobal set, boost that, and cache it.
+        /// Zone lighting does not work that way: the store, the forecourt and the forest each have
+        /// their own local volume that blends in when you walk into it, at a priority above the global
+        /// one. Walk into a zone and its volume simply outvotes the boosted one - which is exactly the
+        /// "off inside, on outside, gone in certain places" that made this look random.
+        ///
+        /// So boost all of them. Whichever one wins where you are standing, it has been raised too.
+        /// Each volume's own exposure is remembered the first time it is touched so switching off puts
+        /// every one of them back, and re-running this is cheap and idempotent - a volume already at
+        /// its target is left alone.
+        /// </summary>
+        private GameObject _brightGo;
+        private Volume _brightVolume;
+        private ColorAdjustments _brightAdj;
+        private bool _ownVolumeFailed;
+
+        /// <summary>
+        /// Our own global grading volume, outranking every volume in the scene.
+        ///
+        /// Boosting the game's own volumes fixed the outdoors and not the store, which says the store's
+        /// volume has no ColorAdjustments to boost - there is nothing there to raise. Owning a volume
+        /// sidesteps that entirely: at priority 9999 with the override set, it is the one URP resolves
+        /// to wherever you are standing, indoors included, and no longer depends on what the scene
+        /// happens to have authored.
+        ///
+        /// If any of this fails on the Il2Cpp side the flag latches and the old per-volume boost takes
+        /// over, so the outdoors keeps working rather than nothing working.
+        /// </summary>
+        private bool EnsureBrightVolume()
+        {
+            if (_ownVolumeFailed) return false;
+            if (Net.Alive(_brightVolume) && Net.Alive(_brightAdj)) return true;
+
+            try
+            {
+                if (!Net.Alive(_brightGo))
+                {
+                    _brightGo = new GameObject("SAM_FullbrightVolume");
+                    UnityEngine.Object.DontDestroyOnLoad(_brightGo);
+                }
+
+                if (!Net.Alive(_brightVolume))
+                {
+                    _brightVolume = _brightGo.GetComponent<Volume>();
+                    if (!Net.Alive(_brightVolume)) _brightVolume = _brightGo.AddComponent<Volume>();
+                }
+                if (!Net.Alive(_brightVolume)) { _ownVolumeFailed = true; return false; }
+
+                VolumeProfile profile = UnityEngine.ScriptableObject
+                    .CreateInstance(Il2CppInterop.Runtime.Il2CppType.Of<VolumeProfile>()).TryCast<VolumeProfile>();
+                ColorAdjustments ca = UnityEngine.ScriptableObject
+                    .CreateInstance(Il2CppInterop.Runtime.Il2CppType.Of<ColorAdjustments>()).TryCast<ColorAdjustments>();
+                if (profile == null || ca == null) { _ownVolumeFailed = true; return false; }
+
+                ca.active = true;
+                ca.postExposure.overrideState = true;
+                ca.postExposure.value = HasPreset ? PresetExposure : BrightBoost;
+                profile.components.Add(ca);
+
+                _brightVolume.isGlobal = true;
+                _brightVolume.priority = 9999f;
+                _brightVolume.weight = 1f;
+                _brightVolume.sharedProfile = profile;
+                _brightAdj = ca;
+
+                Log.Msg("Fullbright: own global volume in place, so the store is covered too.");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                // Said out loud, not at debug level. This latches after one failure, so it cannot
+                // spam - and when it fired silently the only symptom was fullbright quietly not
+                // working indoors, with nothing in the log to say why.
+                Log.Warn("Fullbright could not create its own volume (" + ex.Message +
+                         "); falling back to boosting the scene's own volumes.");
+                _ownVolumeFailed = true;
+                return false;
+            }
+        }
+
+        // ---------------------------------------------------------------- captured look
+
+        /// <summary>A lighting setup captured from the game rather than invented here.</summary>
+        internal bool HasPreset;
+        internal Color PresetAmbient = new Color(0.92f, 0.92f, 0.95f, 1f);
+        internal float PresetIntensity = 1f;
+        internal float PresetExposure = 2.5f;
+
+        /// <summary>
+        /// Takes the lighting exactly as it looks right now and makes it the fullbright setting.
+        ///
+        /// The built-in values were a guess at "bright" - a flat near-white probe at full intensity -
+        /// and a guess is a poor thing to keep re-applying once you have found a look that actually
+        /// works in this game. Capturing reads back what is live and stores it, so fullbright stops
+        /// being an opinion and starts being the setup you already approved of.
+        /// </summary>
+        internal void CaptureCurrentLook()
         {
             try
             {
-                ColorAdjustments ca = FindColorAdjustments();
-                if (ca == null) return;
+                PresetAmbient = RenderSettings.ambientLight;
+                PresetIntensity = RenderSettings.ambientIntensity;
 
-                if (!ReferenceEquals(ca, _colorAdj))
+                float exposure = BrightBoost;
+                try { if (Net.Alive(_brightAdj)) exposure = _brightAdj.postExposure.value; }
+                catch { }
+                PresetExposure = exposure;
+
+                HasPreset = true;
+                LastResult = "Captured this look for fullbright";
+                Log.Msg(LastResult + ": ambient=" + PresetAmbient + " intensity=" +
+                        PresetIntensity.ToString("0.00") + " exposure=" + PresetExposure.ToString("0.00") + " EV.");
+
+                if (_brightOn) ApplyFullbright();
+            }
+            catch (Exception ex) { Log.Ex("capture look", ex); LastResult = "Capture failed"; }
+        }
+
+        internal void ClearPreset()
+        {
+            HasPreset = false;
+            LastResult = "Fullbright back to its built-in look";
+            Log.Msg(LastResult + ".");
+            if (_brightOn) ApplyFullbright();
+        }
+
+        private void DestroyBrightVolume()
+        {
+            try
+            {
+                if (Net.Alive(_brightGo)) UnityEngine.Object.Destroy(_brightGo);
+            }
+            catch { }
+            _brightGo = null;
+            _brightVolume = null;
+            _brightAdj = null;
+        }
+
+        private void ApplyExposure()
+        {
+            // Our own volume wins everywhere, so the scene's are handed back rather than left raised.
+            if (EnsureBrightVolume())
+            {
+                try { _brightAdj.postExposure.value = HasPreset ? PresetExposure : BrightBoost; }
+                catch { }
+                if (_graded.Count > 0) RestoreExposure();
+                return;
+            }
+
+            try
+            {
+                List<Volume> volumes = Net.FindActive<Volume>();
+                for (int i = 0; i < volumes.Count; i++)
                 {
-                    // A different volume than last time - remember its own values before overwriting.
-                    _colorAdj = ca;
-                    _savedExposure = ca.postExposure.value;
-                    _savedExposureOverride = ca.postExposure.overrideState;
-                }
+                    Volume v = volumes[i];
+                    if (!Net.Alive(v)) continue;
+                    try
+                    {
+                        VolumeProfile profile = v.profileRef;
+                        if (profile == null || profile.components == null) continue;
 
-                ca.postExposure.overrideState = true;
-                float want = _savedExposure + BrightBoost;
-                if (Mathf.Abs(ca.postExposure.value - want) > 0.01f) ca.postExposure.value = want;
+                        int count = profile.components.Count;
+                        for (int c = 0; c < count; c++)
+                        {
+                            VolumeComponent comp = profile.components[c];
+                            if (comp == null) continue;
+                            ColorAdjustments ca = comp.TryCast<ColorAdjustments>();
+                            if (ca == null) continue;
+
+                            int id = ca.GetInstanceID();
+                            Graded g;
+                            if (!_graded.TryGetValue(id, out g))
+                            {
+                                g = new Graded
+                                {
+                                    Adjustments = ca,
+                                    SavedExposure = ca.postExposure.value,
+                                    SavedOverride = ca.postExposure.overrideState
+                                };
+                                _graded[id] = g;
+                            }
+
+                            ca.postExposure.overrideState = true;
+                            float want = g.SavedExposure + BrightBoost;
+                            if (Mathf.Abs(ca.postExposure.value - want) > 0.01f) ca.postExposure.value = want;
+                        }
+                    }
+                    catch { }
+                }
             }
             catch (Exception ex) { Log.Debug("exposure: " + ex.Message); }
         }
 
-        /// <summary>
-        /// The scene's global volume owns the grading. TryGet is a generic Il2Cpp call and is not
-        /// dependable from a managed plugin, so the component list is walked and cast instead.
-        /// </summary>
-        private static ColorAdjustments FindColorAdjustments()
+        /// <summary>Puts every volume this touched back to the exposure it shipped with.</summary>
+        private void RestoreExposure()
         {
-            List<Volume> volumes = Net.FindActive<Volume>();
-            ColorAdjustments best = null;
-            float bestPriority = float.NegativeInfinity;
-
-            for (int i = 0; i < volumes.Count; i++)
+            foreach (KeyValuePair<int, Graded> kv in _graded)
             {
-                Volume v = volumes[i];
-                if (!Net.Alive(v)) continue;
+                Graded g = kv.Value;
+                if (g == null || !Net.Alive(g.Adjustments)) continue;
                 try
                 {
-                    if (!v.isGlobal) continue;
-                    VolumeProfile profile = v.profileRef;
-                    if (profile == null || profile.components == null) continue;
-
-                    int count = profile.components.Count;
-                    for (int c = 0; c < count; c++)
-                    {
-                        VolumeComponent comp = profile.components[c];
-                        if (comp == null) continue;
-                        ColorAdjustments ca = comp.TryCast<ColorAdjustments>();
-                        if (ca == null) continue;
-                        if (v.priority >= bestPriority) { bestPriority = v.priority; best = ca; }
-                    }
+                    g.Adjustments.postExposure.value = g.SavedExposure;
+                    g.Adjustments.postExposure.overrideState = g.SavedOverride;
                 }
                 catch { }
             }
-            return best;
+            _graded.Clear();
         }
 
         private void RestoreLighting()
@@ -2030,14 +2332,10 @@ namespace ShiftAtMidnightSuite.Modules
 
             try
             {
-                if (Net.Alive(_colorAdj))
-                {
-                    _colorAdj.postExposure.value = _savedExposure;
-                    _colorAdj.postExposure.overrideState = _savedExposureOverride;
-                }
+                DestroyBrightVolume();
+                RestoreExposure();
             }
             catch (Exception ex) { Log.Debug("restore exposure: " + ex.Message); }
-            _colorAdj = null;
 
             LastResult = "Fullbright off";
             Log.Msg(LastResult + ".");

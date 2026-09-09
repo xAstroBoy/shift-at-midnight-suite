@@ -457,6 +457,8 @@ namespace ShiftAtMidnightSuite.UI
                     Stepper(root, "Jump Height", "Multiplies jump power.",
                         delegate { return p.JumpMultiplier.ToString("0.00") + "x"; },
                         delegate (int dir) { p.JumpMultiplier = Mathf.Clamp(p.JumpMultiplier + 0.25f * dir, 0.25f, 6f); }, 1, 4);
+                    Toggle(root, "Moon Jump", "Jump again in mid-air. Tap for another jump, hold to keep climbing. Uses the game's own jump strength, so Jump Height above still applies.",
+                        delegate { return p.MoonJump; }, delegate (bool v) { p.MoonJump = v; });
                     Toggle(root, "No-Clip", "Fly through walls. WASD / SPACE / CTRL, SHIFT to boost.",
                         delegate { return p.Noclip; },
                         delegate (bool v) { p.Noclip = v; p.OnNoclipChanged(v); });
@@ -509,6 +511,8 @@ namespace ShiftAtMidnightSuite.UI
                         delegate (int dir) { cm.EndOfDaySpeed = Mathf.Clamp(cm.EndOfDaySpeed + dir, 1f, 10f); }, 1, 4);
 
                     Header(root, "CHORES");
+                    Toggle(root, "Auto-Harvest Tokens", "Picks the loose arcade tokens up off the floor through the game's own pickup, so the balance and the sound happen normally.",
+                        delegate { return cm.AutoHarvestTokens; }, delegate (bool v) { cm.AutoHarvestTokens = v; });
                     Toggle(root, "Vents Don't Kick", "Stops the vent throwing you out for staying in it. Getting in and out still works normally.",
                         delegate { return cm.VentsDontKick; }, delegate (bool v) { cm.VentsDontKick = v; });
                     Toggle(root, "No Hint Popups", "Blocks the HUD nags - \"remember to...\", \"ask the driver...\" - at the queue, so they never appear.",
@@ -529,6 +533,15 @@ namespace ShiftAtMidnightSuite.UI
                         delegate { cm.DumpAnomalyLens(); });
 
                     Header(root, "VISION");
+                    Button(root, "Capture This Look For Fullbright", "Stores the lighting exactly as it looks right now and uses that as fullbright from here on, instead of the built-in guess. Saved between sessions.",
+                        delegate { cm.CaptureCurrentLook(); SuiteMod.Instance.SavePrefs(); });
+                    Button(root, "Back To Built-In Look", "Forgets the captured look.",
+                        delegate { cm.ClearPreset(); SuiteMod.Instance.SavePrefs(); });
+                    Toggle(root, "No Distance Clipping", "Raises every camera's far clip plane so distant geometry stops being culled away. Each camera's own value is restored when you switch it off.",
+                        delegate { return cm.NoFarClip; }, delegate (bool v) { cm.NoFarClip = v; });
+                    Stepper(root, "View Distance", "Metres. Higher costs depth precision, which can show as z-fighting on distant surfaces.",
+                        delegate { return cm.FarClipDistance.ToString("0") + "m"; },
+                        delegate (int dir) { cm.FarClipDistance = Mathf.Clamp(cm.FarClipDistance + dir * 500f, 100f, 20000f); }, 1, 4);
                     Toggle(root, "No Fog", "Removes the fog entirely. Independent of fullbright.",
                         delegate { return cm.NoFog; }, delegate (bool v) { cm.NoFog = v; });
                     Toggle(root, "Fullbright", "Flat white ambient, fog off, extra exposure. Restored when switched off.",
@@ -981,21 +994,25 @@ namespace ShiftAtMidnightSuite.UI
                         delegate { return StartHuntPatch.AutoUnstick; },
                         delegate (bool v) { StartHuntPatch.AutoUnstick = v; });
 
-                    Header(root, "SHIFT CLOCK");
-                    Toggle(root, "Endless Night", "The night never ends on its own - no \"your shift is done\", no store shutting down around you. The clock keeps running and winds back before it can expire, so customers and events keep coming. Call The Bus when you actually want to leave.",
+                    Header(root, "ENTITY COUNTDOWN");
+                    Toggle(root, "Endless Night", "Refuses CompleteDay and EODScene outright, so the night does not end whatever decided it was over - clock, occurrence queue or otherwise. Suppresses the \"shift is done\" objective, holds the store open to new shoppers, and loops the occurrence queue so things keep happening. END NIGHT NOW when you want to finish.",
                         delegate { return w.EndlessNight; },
                         delegate (bool v) { w.EndlessNight = v; if (v) w.FreezeClock = false; });
-                    Stepper(root, "Wind Back To", "How much time the clock is given each time it runs low.",
+                    Stepper(root, "Wind Back To", "Unused - kept only so the saved setting is not lost.",
                         delegate { return w.EndlessTopUpMinutes + " min"; },
                         delegate (int dir) { w.EndlessTopUpMinutes = Mathf.Clamp(w.EndlessTopUpMinutes + dir, 1, 60); }, 1, 5);
+                    Button(root, "Dump Shift Clock To Log", "Prints what the shift timer actually is. Endless Night wound the clock back once and never again, so the field it writes to is not the one running the shift - this finds the real one.",
+                        delegate { w.DumpShiftClock(); });
+                    Button(root, "END NIGHT NOW", "Finishes the shift down the game's own path - report, payout, next day - lifting the block for exactly that one call.",
+                        delegate { w.EndNightNow(); }, true);
                     Button(root, "CALL THE BUS", "Brings the end-of-day bus in now. Board it and the night ends the usual way.",
                         delegate { w.CallBus(); }, true);
-                    Toggle(root, "Freeze Shift Clock", "Pins the countdown where it stands. Endless Night is usually what you want instead - a frozen clock also freezes the generation that is scheduled against it.",
+                    Toggle(root, "Freeze Entity Countdown", "Pins StoreManager.secondsLeft where it stands - the countdown behind \"the entity will arrive in N seconds\". Holds the entity off; it is not the shift clock.",
                         delegate { return w.FreezeClock; },
                         delegate (bool v) { w.FreezeClock = v; if (v) w.EndlessNight = false; });
-                    Button(root, "+ 5 Minutes", "", delegate { w.AddSeconds(300); }, true);
-                    Button(root, "+ 15 Minutes", "", delegate { w.AddSeconds(900); }, true);
-                    Button(root, "- 1 Minute", "", delegate { w.AddSeconds(-60); }, true);
+                    Button(root, "Entity + 5 Minutes", "Pushes the entity further away.", delegate { w.AddSeconds(300); }, true);
+                    Button(root, "Entity + 15 Minutes", "", delegate { w.AddSeconds(900); }, true);
+                    Button(root, "Entity - 1 Minute", "Brings the entity sooner. Use Skip Entity Countdown on the Comfort page to clear it outright.", delegate { w.AddSeconds(-60); }, true);
 
                     Header(root, "HUNT");
                     Toggle(root, "Hunt Without Entities", "Hunt still runs and pays out, but no monsters are spawned into it.",

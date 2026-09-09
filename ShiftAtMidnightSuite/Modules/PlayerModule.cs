@@ -808,6 +808,54 @@ namespace ShiftAtMidnightSuite.Modules
             catch (Exception ex) { Log.Debug("movement apply: " + ex.Message); }
         }
 
+        /// <summary>Jump in mid-air. Hold to keep rising, tap to jump again.</summary>
+        internal bool MoonJump;
+
+        /// <summary>Set by the suite each frame so a jump is not thrown while the menu has focus.</summary>
+        internal bool MenuOpen;
+
+        internal int MidAirJumps;
+
+        /// <summary>
+        /// Mid-air jumping, using the jump the game already has.
+        ///
+        /// FPSController drives the player off verticalVelocity, and a normal jump is that field being
+        /// set to jumpPower while grounded. Setting the same field to the same value while airborne is
+        /// therefore a jump in every sense the controller cares about - no second physics path, no
+        /// invented force, and Jump Height keeps working because jumpPower is what the multiplier
+        /// already scales.
+        ///
+        /// Held rather than tapped, so one key covers both readings: tap it for another jump, hold it
+        /// to keep climbing. Grounded jumps are left entirely alone - the game does those.
+        /// </summary>
+        internal void RunMoonJump()
+        {
+            if (!MoonJump || Noclip || MenuOpen) return;
+
+            try
+            {
+                if (!Input.GetKey(KeyCode.Space)) return;
+
+                FPSController c = FindController();
+                if (!Net.Alive(c)) return;
+
+                // On the floor is the game's business; this is only for the air.
+                if (c.grounded) return;
+
+                float power = c.jumpPower;
+                if (power <= 0f) return;
+
+                // Only ever push upward. Overwriting a rising velocity every frame would cap a real
+                // jump at its own strength and make the climb slower than the game's.
+                if (c.verticalVelocity < power)
+                {
+                    c.verticalVelocity = power;
+                    MidAirJumps++;
+                }
+            }
+            catch (Exception ex) { Log.Debug("moon jump: " + ex.Message); }
+        }
+
         internal void RestoreMovement()
         {
             if (!_movementCaptured) return;

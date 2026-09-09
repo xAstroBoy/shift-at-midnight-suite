@@ -837,10 +837,43 @@ namespace ShiftAtMidnightSuite.Modules
         internal int EndlessTopUpMinutes = 10;
 
         internal int NightsExtended;
-        private const int EndlessFloorSeconds = 60;
+        private float _nextEndlessCustomers;
+        private float _nextEndlessEvent;
+
+        /// <summary>
+        /// Ends the night on purpose, which a blocked ending still has to allow.
+        ///
+        /// The block is lifted for exactly this call and put straight back, so the shift finishes down
+        /// the game's own path - the report, the payout, the next day - rather than through anything
+        /// reimplemented here.
+        /// </summary>
+        internal void EndNightNow()
+        {
+            StoreManager sm = null;
+            try { sm = StoreManager.Instance; } catch { }
+            if (!Net.Alive(sm)) { LastResult = "StoreManager not ready"; Log.Warn(LastResult + "."); return; }
+
+            try
+            {
+                // Held open until the scene changes, not just for this call: the ending continues into
+                // EODScene a second later, and closing the gate behind CompleteDay is what left the
+                // screen black with the report never loading.
+                DayEndBlock.EndingInProgress = true;
+                sm.CompleteDay();
+                LastResult = "Night ended";
+                Log.Msg(LastResult + " on request - the ending will run through to the report.");
+            }
+            catch (Exception ex)
+            {
+                DayEndBlock.EndingInProgress = false;
+                Log.Ex("end night", ex);
+                LastResult = "Could not end the night";
+            }
+        }
 
         private void TickEndlessNight()
         {
+            float now = Time.unscaledTime;
             // Winding the clock back re-crosses whatever the night schedules against it, so the
             // once-a-night spawns need the game's own "already done" flags enforced against us.
             RepeatSpawnBlock.Enabled = true;
@@ -851,19 +884,120 @@ namespace ShiftAtMidnightSuite.Modules
 
             try
             {
-                if (sm.secondsLeft < EndlessFloorSeconds)
+                // This used to wind StoreManager.secondsLeft back to ten minutes, on the inherited
+                // claim that it is the shift clock. It is not - it is the entity countdown, the one
+                // behind "the entity will arrive in N seconds". Winding it back did not lengthen a
+                // single night; all it did was push the hunt ten minutes away, which is why a hunt
+                // announced itself as 580 seconds out. It also explains why the wind-back only ever
+                // fired once a night: nothing decrements that field outside a hunt, so once it had
+                // been set to 600 it simply stayed there.
+                //
+                // So it is left alone. The real shift clock has not been identified yet - Dump Shift
+                // Clock To Log is what finds it - and until it is, Endless Night does the half it can
+                // honestly do rather than breaking the hunt for the half it cannot.
+                //
+                // The shift ending is what closes the doors to new shoppers, and holding that open
+                // does keep a night busier for as long as it lasts.
+                if (!sm.allowedToSpawnBrowsingNPCs)
                 {
-                    sm.secondsLeft = Mathf.Clamp(EndlessTopUpMinutes, 1, 60) * 60;
+                    sm.allowedToSpawnBrowsingNPCs = true;
                     NightsExtended++;
-                    LastResult = "Night extended (" + NightsExtended + ")";
-                    Log.Msg("Endless night: clock wound back to " + Fmt(sm.secondsLeft) + ".");
                 }
 
-                // The shift ending is also what closes the doors to new shoppers. Keeping this on
-                // means a long night stays a busy one rather than an empty store with a clock.
-                if (!sm.allowedToSpawnBrowsingNPCs) sm.allowedToSpawnBrowsingNPCs = true;
+                // Rewinding curOccurrence was the first idea here and it was the wrong one: it replays
+                // a list this codebase has already established nothing consumes - TriggerNextEvent was
+                // never called from it once across a whole night - so it would have re-run the same
+                // entries out of a queue that was not driving anything anyway.
+                //
+                // New content instead, through the two paths that demonstrably do fire: the game's own
+                // SpawnBrowsingNPC for shoppers, and the event pump for atmosphere. Both already exist
+                // and are already the mechanism behind Keep Store Busy and Multiply Events; a held-open
+                // night just needs them running whether or not those toggles are on.
+                if (Net.IsHost)
+                {
+                    if (now >= _nextEndlessCustomers)
+                    {
+                        _nextEndlessCustomers = now + 6f;
+                        TopUpCustomers();
+                    }
+                    if (now >= _nextEndlessEvent)
+                    {
+                        _nextEndlessEvent = now + EventInterval();
+                        PumpEvents();
+                        NightsExtended++;
+                    }
+                }
             }
             catch (Exception ex) { Log.Debug("endless night: " + ex.Message); }
+        }
+
+        /// <summary>
+        /// Finds the widget the shift timer is actually drawn into.
+        ///
+        /// Endless Night wound the clock back once and then never again, which is only possible if
+        /// nothing is decrementing StoreManager.secondsLeft - so that field is not the shift clock,
+        /// whatever the inherited comment on it says, and the real one ran out underneath it. Freeze
+        /// Shift Clock and the +/- minute buttons all write to the same field, so they will have been
+        /// no-ops too.
+        ///
+        /// Every clock on screen is text in the end. This prints secondsLeft next to what its own
+        /// label reads, then every text in the scene that looks like a timer, with the path to it -
+        /// and the object holding the real one names the system that drives it.
+        /// </summary>
+        internal void DumpShiftClock()
+        {
+            try
+            {
+                StoreManager sm = StoreManager.Instance;
+                if (Net.Alive(sm))
+                {
+                    string label = "?";
+                    try { label = sm.secondsLeftText == null ? "(no text)" : sm.secondsLeftText.text; } catch { }
+                    string extra = "";
+                    try { extra = " inHunt=" + sm.inHunt + " alreadyCompleted=" + sm.alreadyCompleted; } catch { }
+                    Log.Msg("SHIFT CLOCK: StoreManager.secondsLeft=" + sm.secondsLeft +
+                            " secondsLeftText=\"" + label + "\"" + extra);
+                }
+
+                CurrentDayManager dm = CurrentDayManager.Instance;
+                if (Net.Alive(dm))
+                {
+                    try { Log.Msg("   CurrentDayManager: curDay=" + dm.curDay + " curOccurrence=" + dm.curOccurrence +
+                                  " occurrencesCompleted=" + dm.occurrencesCompleted + " startedDay=" + dm.startedDay); }
+                    catch { }
+                }
+
+                // Anything reading like mm:ss is a candidate for the real timer.
+                List<Il2CppTMPro.TextMeshProUGUI> texts = Net.FindActive<Il2CppTMPro.TextMeshProUGUI>();
+                int shown = 0;
+                for (int i = 0; i < texts.Count && shown < 20; i++)
+                {
+                    Il2CppTMPro.TextMeshProUGUI t = texts[i];
+                    if (!Net.Alive(t)) continue;
+
+                    string s;
+                    try { s = t.text; } catch { continue; }
+                    if (string.IsNullOrEmpty(s) || s.Length > 12 || s.IndexOf(':') < 0) continue;
+
+                    bool digits = false;
+                    for (int k = 0; k < s.Length; k++) if (s[k] >= '0' && s[k] <= '9') { digits = true; break; }
+                    if (!digits) continue;
+
+                    shown++;
+                    string path = "";
+                    try
+                    {
+                        Transform tr = t.transform;
+                        for (int d = 0; d < 5 && tr != null; d++) { path = "/" + tr.name + path; tr = tr.parent; }
+                    }
+                    catch { }
+                    Log.Msg("   CLOCK TEXT \"" + s + "\" at" + path);
+                }
+                if (shown == 0) Log.Msg("   No timer-looking text on screen right now.");
+
+                LastResult = "Shift clock dumped to the log";
+            }
+            catch (Exception ex) { Log.Ex("dump shift clock", ex); LastResult = "Dump failed"; }
         }
 
         /// <summary>Brings the end-of-day bus in on demand. Board it and the night ends normally.</summary>
@@ -1091,6 +1225,8 @@ namespace ShiftAtMidnightSuite.Modules
 
             // Only Endless Night moves the clock backwards, so only it needs the repeat guard.
             if (RepeatSpawnBlock.Enabled != EndlessNight) RepeatSpawnBlock.Enabled = EndlessNight;
+            if (DayEndBlock.Enabled != EndlessNight) DayEndBlock.Enabled = EndlessNight;
+            if (ObjectiveMute.Enabled != EndlessNight) ObjectiveMute.Enabled = EndlessNight;
 
             if ((FreezeClock || EndlessNight) && now >= _nextClockTick)
             {
@@ -1859,6 +1995,8 @@ namespace ShiftAtMidnightSuite.Modules
 
         internal void OnSceneChanged()
         {
+            // The night that was ending is gone; the next one is held open again.
+            DayEndBlock.EndingInProgress = false;
             _doppelsSentTonight = 0;
             _nextEventPump = 0f;
             EventsPumped = 0;

@@ -19,17 +19,20 @@ store balance, arcade tokens, and story mode's personal funds (the one the vet's
 bills come out of). Wallet floor. Infinite store refreshes. Infinite ammo with
 an adjustable ammo ceiling. Freeze consumables. Inventory slots up to 8, and you
 can write the number permanently to your save. Move speed and jump height
-multipliers. No-clip with speed control.
+multipliers. Moon jump - tap for another jump in mid-air, hold to keep climbing,
+using the game's own jump strength so Jump Height still applies. No-clip with
+speed control.
 
 [b]COMFORT[/b]
 Max customer patience with a patience allowance. Customers always happy. Honest
 stock rating. Remove store curbs, chain fences, and the forest roof. Silence
 bells. Auto-unlock items after talking. Humans invincible. Instant traps and
-boarding. Auto-fuel cars. Vents don't kick you out. No hint popups. Instant
-emoti-scope, and reveal the anomaly-lens objects without the lens. No fog,
-fullbright, brightness boost. Kill extra monsters, kill baby dolls only, skip the
-entity countdown and the hunt briefing - each manual or automatic. Fast customer
-report with an adjustable speed.
+boarding. Auto-fuel cars. Auto-harvest the loose arcade tokens. Vents don't kick
+you out. No hint popups. Instant emoti-scope, and reveal the doppelganger's
+anomaly form without the lens. No fog, fullbright with a captureable look, and no
+distance clipping with an adjustable view distance. Kill extra monsters, kill baby
+dolls only, skip the entity countdown and the hunt briefing - each manual or
+automatic. Fast customer report with an adjustable speed.
 
 [b]SPAWNER[/b]
 Every item in the game, searchable. Set the amount, the item storage (ammo it
@@ -74,9 +77,9 @@ spills, moppables, and trash.
 [b]WORLD[/b]
 Unlock the full arsenal, weapon wall always open, gun case for everyone. Skip
 forced text reveal, finish current objective. UNSTICK ME (F2) with an
-auto-unstick on hunt start. Endless Night, plus Call The Bus. Freeze or advance
-the shift clock. Hunt without entities, block hunts entirely, send entities away,
-force end hunt. Block rake spawns. Multiply customers, events, nuisances, and
+auto-unstick on hunt start. Endless Night, Call The Bus and End Night Now. Freeze
+or advance the entity countdown. Hunt without entities, block hunts entirely,
+send entities away, force end hunt. Block rake spawns. Multiply customers, events, nuisances, and
 doppelgangers. Always perfect reviews. Unlock all hats and cosmetics. UI scale.
 Log dumps and a profiler.
 
@@ -89,16 +92,27 @@ reaching zero buys you, and it is not just a banner: the store stops generating,
 the shoppers walk out, and you are stood in a finished night waiting to be allowed
 to leave.
 
-Endless Night lets the clock keep [i]running[/i] and winds it back before it can
-expire, so time still moves and the generation scheduled against it keeps firing.
-Browsing customers are held open too, so a long night stays a busy one instead of
-an empty store with a timer.
+Endless Night refuses the ending itself. StoreManager.CompleteDay and EODScene are
+the two calls a night ends through, so blocking those holds the shift open no
+matter what decided it was over - the clock, the occurrence queue, or anything
+else. Chasing the timer was tried first and was the wrong level to work at: the
+field that looked like the shift clock turned out to run the entity countdown, and
+winding it back only pushed the hunt ten minutes away.
 
-Nothing about it blocks the day from completing. That is deliberate - patching the
-ending out would mean boarding the bus did nothing and you were stuck in a night
-you could not leave. The night simply never reaches its own end, and
-[b]CALL THE BUS[/b] brings the bus in whenever you want to go. Board it and the
-night ends exactly as it always did.
+The "your shift is done, head to the bus" line is an objective, so it is suppressed
+by id. Every objective the game sets is logged as it happens, and the muted list is
+editable, so a wording this misses costs a config line rather than a rebuild.
+
+Held open, the store keeps working: browsing customers are topped up through the
+game's own SpawnBrowsingNPC, and atmospheric events keep firing on the usual
+interval - the pump deliberately excludes anything that starts a hunt, ends a day
+or advances the story, so a long night cannot derail itself.
+
+Leaving is never blocked. Board the bus and choose [b]head home[/b] and the shift
+ends exactly as it always did - the block lifts the moment anyone completes the
+day. [b]CALL THE BUS[/b] brings it in on demand, and [b]END NIGHT NOW[/b] finishes
+the shift outright, both running down the game's own path to the report and the
+payout.
 
 [line]
 
@@ -174,11 +188,14 @@ classified before any of it, so "wounded, never killed" still holds for them.
 A dead test that looked for an Npc component came out: Npc is a ScriptableObject,
 so it could never have matched anything, and every line in the log agreed.
 
-[b]Event objectives went uncredited when the mod cleaned up.[/b] Cleaning a
-Moppable through Rpc_CMD_Clean removes the roach but never tells the counter, so
-the roach infestation objective sat unfinished while the floor came up spotless.
-Roaches are now counted as they are cleaned, once each, and the rat infestation
-gets the same treatment.
+[b]The roach objective could not be finished.[/b] The cleaner is always running and
+the infestation counter is only armed when the event starts, so on a night where
+the roaches were already on the floor every one of them was mopped before anything
+was counting. The objective then sat at 0 of 23 with nothing left in the store to
+find. Roaches are counted as they are cleaned now and settled up once a counter
+appears, which covers both orderings - cleaned during the event, or cleaned before
+it started. It reconciles against the counter's own value rather than firing
+blind, so a clean the game credits by itself is not counted twice.
 
 [b]No Hunt Briefing.[/b] Skipping the entity countdown brought the entity in early
 but left the explanation panels up with their own timer, which is what you were
@@ -243,6 +260,50 @@ set to 4". It now clones the smallest object containing the animator and both
 images, whatever the hierarchy looks like, grows the per-slot text arrays as well,
 repairs itself if a network resync shortens what it built, and says out loud why if
 it still cannot.
+
+[line]
+
+[size=4][b]Newer additions[/b][/size]
+
+[b]Moon jump.[/b] FPSController moves the player off verticalVelocity, and a normal
+jump is that field being set to jumpPower while grounded. Mid-air jumping sets the
+same field to the same value - no second physics path and no invented force, so
+Jump Height keeps working because jumpPower is what it already scales. Grounded
+jumps are left to the game, and it only ever pushes upward, so a real jump is never
+capped at its own strength.
+
+[b]Auto-harvest tokens.[/b] The coin prefab carries a PickupObject, which is an
+Interactable, so the pickup already exists - collecting goes through Interact, the
+same call the game makes when you walk up and press the key. The balance, the
+networking and the sound all happen normally.
+
+[b]Reveal anomaly forms.[/b] A doppelganger carries two complete rigs: the human
+body, and a second one on the GhostCamera layer that the player camera does not
+draw. The lens is a feed from that camera, which is why it has no camera of its
+own. This moves the second rig onto a layer that is drawn and moves the human body
+off it - a swap, not an overlay, because the lens shows one or the other. Only the
+skinned body is hidden, so the patience bar stays. The jumpscare creature and the
+doppelganger with no visible body are both left alone.
+
+[b]Fullbright that survives walking indoors.[/b] Zone lighting uses local volumes at
+a higher priority than the global one, so boosting the scene's grading fixed the
+forecourt and not the store - the store's volume had no grading to boost. The mod
+owns a global volume at priority 9999 now, which is what resolves wherever you are
+standing. [b]Capture This Look[/b] stores the lighting exactly as it appears and
+uses that from then on, instead of a built-in guess at "bright".
+
+[b]No distance clipping.[/b] Raises every camera's far clip plane so distant
+geometry stops being culled, re-swept as new cameras appear - the ghost feed, the
+spectator view and the end-of-day scene each bring their own. Each camera's own
+value is restored when you switch it off. Higher view distances cost depth
+precision, so there is a stepper rather than one hard-coded number.
+
+[b]The lag spikes on a messy night.[/b] Spills, Moppables and Trash were swept in
+one tick - three FindObjectsOfType calls, each walking the scene, in a single frame
+twice a second. They rotate now, one type per pass. Two other sweeps went with
+them: the instant-hold sweep walked every Interactable in the scene when the only
+one that can matter is the one you are looking at, and the end-of-day check ran a
+scene-wide search four times a second for a type with one instance.
 
 [line]
 

@@ -139,6 +139,50 @@ later.
 
 [line]
 
+[size=4][b]Fixed in the current build[/b][/size]
+
+[b]Humans Invincible was shielding people it should not have.[/b] Norbert, the
+robbers and the antler man all wear a customer's scripts, so they matched the
+browse and dialogue tests and became unkillable. Hostility is now decided from the
+game's own flags first - Hittable.dontPunishForKilling and hasBounty are how the
+game marks a target, and StoreBrowseBehaviour.damageToPlayer is only non-zero on
+someone who can hurt you - with an editable name list behind that as a backstop
+(HostileNames in MelonPreferences.cfg). Nuisances are classified before any of it,
+so "wounded, never killed" still holds for them. A dead test that looked for an Npc
+component came out: Npc is a ScriptableObject, so it could never have matched
+anything, and every line in the log agreed.
+
+[b]Event objectives went uncredited when the mod cleaned up.[/b] Cleaning a
+Moppable through Rpc_CMD_Clean removes the roach but never tells the counter, so
+the roach infestation objective sat unfinished while the floor came up spotless.
+Roaches are now counted as they are cleaned, once each, and the rat infestation
+gets the same treatment.
+
+[b]No Hunt Briefing.[/b] Skipping the entity countdown brought the entity in early
+but left the explanation panels up with their own timer, which is what you were
+actually sat waiting on. A new toggle closes them the moment they appear.
+
+[b]Instant Traps missed often enough to notice.[/b] Three separate causes. The fill
+bar was only pushed when InventoryManager.tasking was set, and not every
+hold-to-do sets it. Boarding a door was "fixed" by writing the barricade timer up
+to its delay, which only helps if that timer counts up - if it counts down, that
+write restarted the wait. And completing the bar from a Harmony hook races the
+game's own Update either way. So the hold requirement is now removed at source:
+Interactable.holdInteractableTime is zeroed on every hold-to-use object, and put
+back when the option is switched off.
+
+[b]Extra inventory slots were built but unusable.[/b] The HUD widget for a new slot
+was cloned from the Animator's GameObject, then the two Images were looked for
+underneath it - an assumption that only holds if the sprites are children of the
+animator, and in this game they are not. The clone bailed out, silently, and the
+request was clamped back to four while the log cheerfully reported "Inventory slots
+set to 4". It now clones the smallest object containing the animator and both
+images, whatever the hierarchy looks like, grows the per-slot text arrays as well,
+repairs itself if a network resync shortens what it built, and says out loud why if
+it still cannot.
+
+[line]
+
 [size=4][b]Multiplayer[/b][/size]
 
 Rows marked [i]host only[/i] are greyed out when you do not have state authority.

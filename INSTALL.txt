@@ -1,0 +1,99 @@
+================================================================================
+ SHIFT AT MIDNIGHT SUITE  v1.0.1
+================================================================================
+
+INSTALL
+-------
+
+1. Install MelonLoader 0.7.3 or newer into Shift At Midnight first.
+   Run the game once so MelonLoader creates its folders, then close it.
+
+2. Drag the THREE folders in this zip - Mods, UserData, UserLibs - into your
+   game folder. Say yes to merging. That is the whole install.
+
+   Your game folder is normally:
+   ...\Steam\steamapps\common\Shift At Midnight\
+
+   When it is done it should look like this:
+
+   Shift At Midnight\
+   |-- ShiftAtMidnight.exe
+   |-- Mods\
+   |   `-- ShiftAtMidnightSuite.Loader.dll          <- the mod
+   |-- UserData\
+   |   `-- ShiftAtMidnightSuite\
+   |       `-- ShiftAtMidnightSuite.Plugin.dll      <- all the features
+   `-- UserLibs\
+       `-- UniverseLib.ML.IL2CPP.Interop.dll        <- the menu library
+
+3. Start the game and press F1.
+
+
+IMPORTANT - DO NOT MOVE THE PLUGIN
+----------------------------------
+
+ShiftAtMidnightSuite.Plugin.dll belongs in UserData\ShiftAtMidnightSuite\, NOT
+in Mods\. If you put it in Mods, MelonLoader loads it as a mod itself, locks the
+file, and the suite will not work. Only the Loader goes in Mods.
+
+
+ALREADY HAVE UNITYEXPLORER?
+---------------------------
+
+Then you already have UniverseLib and the UserLibs folder in this zip is
+optional - it is the same file. Overwriting it is harmless either way.
+
+
+KEYS
+----
+
+  F1   open / close the menu   (rebindable - see below)
+  F2   UNSTICK ME
+  F3   reload the plugin after a rebuild
+
+UnityExplorer keeps F7 and is not touched by this mod.
+
+The menu is mouse-driven: click a category in the sidebar, tick checkboxes,
+click the -/+ steppers, type in the search boxes. Drag the title bar to move it,
+drag an edge to resize it.
+
+UniverseLib takes a second or two to start after the game loads. If you press F1
+before then, a plain keyboard-driven fallback menu opens instead and the log
+says which one you got. Close it and press F1 again once the game has settled.
+
+
+SETTINGS
+--------
+
+Everything is saved to UserData\MelonPreferences.cfg under
+[ShiftAtMidnightSuite].
+
+  MenuKey        any UnityEngine.KeyCode name - F4, Insert, Backspace, ...
+  HostileNames   comma-separated name fragments that "Humans Invincible" must
+                 never protect. If someone who should be killable is not, look
+                 in the MelonLoader console for a line starting "SHIELDED:" -
+                 it prints the exact object name - and add part of it here.
+
+
+UNINSTALL
+---------
+
+Delete these three, and that is all of it:
+
+  Mods\ShiftAtMidnightSuite.Loader.dll
+  UserData\ShiftAtMidnightSuite\
+  UserData\MelonPreferences.cfg     (only the [ShiftAtMidnightSuite] section)
+
+Leave UserLibs\UniverseLib.ML.IL2CPP.Interop.dll if you use UnityExplorer.
+
+
+CREDITS
+-------
+
+chadi7bark + xAstroBoy
+
+Requires MelonLoader (github.com/LavaGang/MelonLoader).
+Ships UniverseLib by sinai-dev, the same file UnityExplorer uses.
+Contains nothing from the game itself.
+
+Source: https://github.com/xAstroBoy/shift-at-midnight-suite

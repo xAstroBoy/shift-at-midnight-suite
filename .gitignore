@@ -13,3 +13,6 @@ _replaced-mods-backup/
 *.dll
 *.exe
 *.pdb
+
+# Packaged release zips
+*.zip

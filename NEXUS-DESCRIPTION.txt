@@ -1,0 +1,190 @@
+================================================================================
+ SHIFT AT MIDNIGHT SUITE  -  Nexus Mods page description
+ Paste into the Nexus description editor in BBCode mode.
+================================================================================
+
+[size=5][b]Shift At Midnight Suite[/b][/size]
+
+One mod that replaces the whole scattered stack of Shift At Midnight cheat and
+QoL mods, fixes the bugs they shipped with, and adds a great deal more.
+
+Press [b]F1[/b] for a real mouse-driven panel: click a category in the sidebar,
+tick checkboxes, click the -/+ steppers, type in the search boxes. Drag the
+title bar to move it, drag an edge to resize it. UnityExplorer keeps F7 and is
+left completely untouched.
+
+[line]
+
+[size=4][b]What's in it - 11 pages[/b][/size]
+
+[b]PLAYER[/b]
+Infinite stamina. God mode. Infinite money - all three wallets, meaning the
+store balance, arcade tokens, and story mode's personal funds (the one the vet's
+bills come out of). Wallet floor. Infinite store refreshes. Infinite ammo with
+an adjustable ammo ceiling. Freeze consumables. Inventory slots up to 8, and you
+can write the number permanently to your save. Move speed and jump height
+multipliers. No-clip with speed control.
+
+[b]COMFORT[/b]
+Max customer patience with a patience allowance. Customers always happy. Honest
+stock rating. Remove store curbs, chain fences, and the forest roof. Silence
+bells. Auto-unlock items after talking. Humans invincible. Instant traps and
+boarding. Auto-fuel cars. No fog, fullbright, brightness boost. Kill extra
+monsters, kill baby dolls only, skip the entity countdown - each manual or
+automatic.
+
+[b]SPAWNER[/b]
+Every item in the game, searchable. Set the amount, the item storage (ammo it
+arrives carrying), and the spawn method - Auto, Drop, Throw, or Local.
+
+[b]WEAPONS[/b]
+Spawn pre-loaded, networked weapons. Plus a grenade-launcher mode for the
+flamethrower, with fire rate, grenades per burst, and projectile speed.
+
+[b]PLAYERS[/b]
+A per-player target list, and a full toolkit for each.
+Hurt: damage, down, kill, stick them in place, sic monsters on them, max scent.
+Help: heal to max, revive, respawn, clear scent.
+Move: teleport them to you, you to them, or them to the store.
+Inventory: drop everything, explode held item, jam or unjam gun, pulverize, set
+their slot count.
+Misc: rename, hunt light on/off.
+
+[b]DOPPELS[/b]
+Spawn 1, 3, or the game's own eight-doppelganger horde. Detector that warns when
+you look at one, radar that counts every one nearby, on-screen detection
+evidence, corner badge, adjustable warning text size.
+
+[b]CREATURES[/b]
+Click-to-spawn pickers for monsters and bosses, scripted customers with ID
+cards, ambient shoppers, and pets - plus toggleable set pieces (cow, dentists,
+Pubert, and the rest).
+
+[b]EVENTS[/b]
+Every entry in the game's event atlas, click to run it.
+
+[b]RPC[/b]
+Every networked call in the game, reflected off every NetworkBehaviour,
+searchable and clickable. [cmd] entries are client-to-host commands; the rest
+need state authority.
+
+[b]STORE[/b]
+Auto-bag items, allow unbagged checkout, non-doppels self-checkout, clear
+counter leftovers, complete transaction now. Auto-stock shelves. Auto-clean
+spills, moppables, and trash.
+
+[b]WORLD[/b]
+Unlock the full arsenal, weapon wall always open, gun case for everyone. Skip
+forced text reveal, finish current objective. UNSTICK ME (F2) with an
+auto-unstick on hunt start. Freeze or advance the shift clock. Hunt without
+entities, block hunts entirely, send entities away, force end hunt. Block rake
+spawns. Multiply customers, events, nuisances, and doppelgangers. Always perfect
+reviews. Unlock all hats and cosmetics. UI scale. Log dumps and a profiler.
+
+[line]
+
+[size=4][b]Bugs it fixes in the mods it replaces[/b][/size]
+
+[b]The item spawner refused to spawn most items.[/b] The old trainer scanned the
+loaded scene for a PickupObject whose objectIndex matched and gave up if none
+existed - so anything not already lying around that night could not be spawned -
+and its item list was a hardcoded 52 of 59 ids. The real catalogue is
+StoreManager.pickupObjs, a prefab array indexed by item id. The spawner reads
+that now, so every id in the game is spawnable and the list length comes from
+the real array.
+
+[b]Spawned items were local ghosts.[/b] Spawning went through Object.Instantiate,
+which no other player ever saw. It now goes through the game's own networked
+path, Rpc_CMD_NetworkDropObject, so everyone sees what you spawn. Direct
+instantiation is the offline fallback only.
+
+[b]Spawned grenades exploded on landing.[/b] StoreManager keeps two prefab arrays
+- pickupObjs (inert) and thrownObjs (armed) - and the old version spawned through
+ServerThrowObject, the throw path, which arms explosives by design. Drop
+semantics are the default now and explosives never go down the throw path, not
+even as a fallback. Items are classified by their real prefab name rather than a
+hardcoded id table, since the inherited id list is not guaranteed to match this
+build's array order.
+
+[b]Infinite ammo did nothing for spawned guns.[/b] Two causes. Spawned weapons got
+itemStorage = 0, so they arrived empty. And the cheat only held each slot at the
+highest value it had ever seen, so a gun that arrives at 0 has a high-water mark
+of 0 and never refills. Storage is automatic now and gives weapons a full load,
+and weapon slots are topped up to a target instead. Only slots holding an actual
+weapon are touched, because itemStorages also carries crate contents and forcing
+those to 99 would break stocking.
+
+[b]Auto-clean left most of the mess.[/b] The old check required the object to be
+named exactly "BloodSpill(Clone)" and tagged Mess, so bathroom blots, vomit and
+oil were all skipped - and the Moppable component was never touched at all, even
+though it is what most floor mess actually uses. It now cleans every Spill and
+every Moppable regardless of name, plus loose Trash. A failed clean is retried
+after three seconds instead of blacklisting the object for the rest of the night.
+
+[b]Auto-stock wedged on shelves it could not finish.[/b] It derived a per-slot cap
+of maxProductsOnShelf / slotCount; when that did not divide evenly - 10 across 3
+slots caps at 9 - every slot read "full" while the shelf was still incomplete,
+and stocking stalled forever. It now works off the shelf's own productsOnShelf
+against maxProductsOnShelf and fills the emptiest slot.
+
+[b]Auto-stock needed a crate in hand.[/b] It only armed from a Harmony hook on
+crate pickup. It polls instead now and by default needs no crate at all - turn on
+"Only Stock From Held Crate" for the old behaviour.
+
+[b]The gun case patch targeted the wrong type.[/b] The old BepInEx plugin patched
+GunCase.Interact, but GunCase does not override Interact - it inherits it from
+Interactable, so the patch never applied. It now sits on Interactable and filters
+for gun cases, backed by a once-a-second sweep that also catches cases spawned
+later.
+
+[line]
+
+[size=4][b]Multiplayer[/b][/size]
+
+Rows marked [i]host only[/i] are greyed out when you do not have state authority.
+Item spawning works either way: as host you spawn directly, as a client you ask
+the host.
+
+[line]
+
+[size=4][b]Installation[/b][/size]
+
+[list=1]
+[*]Install MelonLoader 0.7.3 (IL2CPP / net6).
+[*]Put [b]ShiftAtMidnightSuite.Loader.dll[/b] in [b]Mods\[/b]
+[*]Put [b]ShiftAtMidnightSuite.Plugin.dll[/b] in [b]UserData\ShiftAtMidnightSuite\[/b]
+[*]Put [b]UniverseLib.ML.IL2CPP.Interop.dll[/b] in [b]UserLibs\[/b]
+[/list]
+
+The plugin goes under UserData rather than Mods on purpose - if MelonLoader saw
+it in Mods it would load it as a mod itself, lock the file, and put its types in
+the wrong context.
+
+[line]
+
+[size=4][b]Why it is split into two DLLs[/b][/size]
+
+MelonLoader loads mods into a context .NET cannot unload, so anything that is a
+mod needs a game restart to change. The loader is therefore deliberately tiny
+and stable, and the entire feature set lives in a plugin loaded into a
+collectible AssemblyLoadContext. [b]F3[/b] hot-reloads it without restarting the
+game.
+
+[line]
+
+[size=4][b]Configuration[/b][/size]
+
+Settings persist to [b]UserData\MelonPreferences.cfg[/b] under
+[b][ShiftAtMidnightSuite][/b]. Rebind the menu to any UnityEngine.KeyCode name
+(F4, Insert, Backspace, ...) with the [b]MenuKey[/b] entry.
+
+UniverseLib initialises a second or two after the game loads. If you press F1
+before then - or if UniverseLib is unavailable - a plain keyboard-driven fallback
+menu opens instead, and the log tells you which one you got.
+
+[line]
+
+[size=4][b]Credits[/b][/size]
+
+chadi7bark + xAstroBoy
+Requires MelonLoader. Bundles nothing from the game.

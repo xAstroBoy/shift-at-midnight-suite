@@ -1,0 +1,44 @@
+Rat Infestation                    EventManager       Rpc_SpawnRatInfestation              298  StoreManager.NewObjective GameObject.SetActive  | str: il2cpp_runtime_class_init_export Answer the Phone Objectives RatInfestation
+Roach Infestation                  EventManager       Rpc_SpawnRoachInfestation            298  StoreManager.NewObjective GameObject.SetActive  | str: il2cpp_runtime_class_init_export Answer the Phone Objectives RoachInfestation
+Flickering Lights                  EventManager       Rpc_FlickeringLightsEvent            288  StoreManager.AllBrowsingNPCsRunAway StoreManager.NewObjective GameObject.SetActive  | str: il2cpp_runtime_class_init_export Store Generator Tampered Objectives
+Spawn Truck                        EventManager       Rpc_SpawnTruck                       228  GameObject.SetActive  | str: il2cpp_runtime_class_init_export
+Chasing Nathan                     EventManager       Rpc_SpawnChasingNathan               298  StoreManager.NewObjective GameObject.SetActive  | str: il2cpp_runtime_class_init_export Answer the Phone Objectives CarBrokenDown
+Forest Limbs                       EventManager       Rpc_SpawnForestLimbs                 298  StoreManager.NewObjective GameObject.SetActive  | str: il2cpp_runtime_class_init_export Answer the Phone Objectives ForestLimbs
+Blood Moon Explanation             EventManager       Rpc_BloodMoonExplanation             298  StoreManager.NewObjective GameObject.SetActive  | str: il2cpp_runtime_class_init_export Answer the Phone Objectives BloodMoonExplanation
+Shrine Event                       EventManager       Rpc_StartShrineEvent                 370  StoreManager.NewObjective GameObject.SetActive SaveManager.get_CurrentSaveSlot PlayerPrefs.GetInt  | str: il2cpp_runtime_class_init_export Answer the Phone Objectives KilledDumpsterMonster ShrineEventNoKilledMonster
+Corpse Night Call                  EventManager       Rpc_CallOnCorpseNightRpc             298  StoreManager.NewObjective GameObject.SetActive  | str: il2cpp_runtime_class_init_export Answer the Phone Objectives CorpseNight
+Suspicious Customer                EventManager       Rpc_SuspiciousCustomerRpc            298  StoreManager.NewObjective GameObject.SetActive  | str: il2cpp_runtime_class_init_export Answer the Phone Objectives SuspiciousCustomer
+End Of Day Bus                     EventManager       Rpc_EODBus                           330  GameObject.get_activeInHierarchy GameObject.SetActive StoreManager.NewObjective  | str: il2cpp_runtime_class_init_export EOD Bus Objectives
+End Of Day Fake Bus                EventManager       Rpc_EODFakeBus                       264  GameObject.SetActive StoreManager.NewObjective  | str: il2cpp_runtime_class_init_export EOD Bus Objectives
+Disable End Of Day Bus             EventManager       Rpc_DisableEODBus                    228  GameObject.SetActive  | str: il2cpp_runtime_class_init_export
+Night 1 Truck                      EventManager       Rpc_SpawnNight1TruckRpc              260  CurrentDayManager.Rpc_SpawnTruck  | str: il2cpp_runtime_class_init_export
+Nuisance Event                     CurrentDayManager  Rpc_NuisanceEvent                    608  StoreManager.SpawnNuisanceNPC MonoBehaviour.Invoke  | str: il2cpp_runtime_class_init_export SpawnNuisanceNPC
+Rake Intro                         CurrentDayManager  Rpc_RakeIntro                        272  GameObject.SetActive  | str: il2cpp_runtime_class_init_export
+Rake Graffiti                      CurrentDayManager  Rpc_RakeGraffiti                     272  GameObject.SetActive  | str: il2cpp_runtime_class_init_export
+Scary Truck                        CurrentDayManager  Rpc_ScaryTruck                       243  CurrentDayManager.Rpc_SpawnTruck  | str: il2cpp_runtime_class_init_export
+Enable Ambulance                   CurrentDayManager  Rpc_EnableAmbulance                  228  GameObject.SetActive  | str: il2cpp_runtime_class_init_export
+Bathroom Guy                       CurrentDayManager  Rpc_EnableBathroomGuy                228  GameObject.SetActive  | str: il2cpp_runtime_class_init_export
+Dentist In Storage                 CurrentDayManager  Rpc_EnableDentistInStorage           228  GameObject.SetActive  | str: il2cpp_runtime_class_init_export
+Dentist Near Dumpster              CurrentDayManager  Rpc_SpawnDentistNearDumpster         228  GameObject.SetActive  | str: il2cpp_runtime_class_init_export
+Dentist On Roof                    CurrentDayManager  Rpc_EnableDentistOnRoof              228  GameObject.SetActive  | str: il2cpp_runtime_class_init_export
+Dentist On Bus                     CurrentDayManager  Rpc_EnableDentistOnBus               228  GameObject.SetActive  | str: il2cpp_runtime_class_init_export
+Crawling Dentist                   CurrentDayManager  Rpc_EnableCrawlingDentist            256  PlayerPrefs.GetInt Behaviour.set_enabled GameObject.SetActive  | str: il2cpp_runtime_class_init_export Epilepsy
+Doppel Drinking Petrol             CurrentDayManager  Rpc_EnableDoppelDrinkingPetrol       228  GameObject.SetActive  | str: il2cpp_runtime_class_init_export
+Ten Antlers                        CurrentDayManager  Rpc_Enable10Antlers                  228  GameObject.SetActive  | str: il2cpp_runtime_class_init_export
+Creepy Painting                    CurrentDayManager  Rpc_EnableCreepyPainting             228  GameObject.SetActive  | str: il2cpp_runtime_class_init_export
+Anomaly Lens                       CurrentDayManager  Rpc_EnableAnomalyLens                228  GameObject.SetActive  | str: il2cpp_runtime_class_init_export
+Pubert (today)                     CurrentDayManager  Rpc_EnablePubert                     348  GameObject.SetActive NetworkObject.get_HasStateAuthority FusionNetworkManager.SpawnItem  | str: il2cpp_runtime_class_init_export
+Day 7 Setup                        CurrentDayManager  Rpc_Day7                             228  GameObject.SetActive  | str: il2cpp_runtime_class_init_export
+Purchase Traps Hint                CurrentDayManager  Rpc_PurchaseTrapsHint                270  StoreManager.AddHint StoreManager.NextHint  | str: il2cpp_runtime_class_init_export PurchaseTrapsHint
+Disable Quota Note                 CurrentDayManager  Rpc_DisableQuotaNote                 228  GameObject.SetActive  | str: il2cpp_runtime_class_init_export
+Turn Off Day-1 Objects             CurrentDayManager  Rpc_TurnOffDay1Objs                  250  GameObject.SetActive  | str: il2cpp_runtime_class_init_export
+Turn Off Not-Day-1 Objects         CurrentDayManager  Rpc_TurnOffNotDay1Objs               280  UnityEvent.Invoke GameObject.SetActive  | str: il2cpp_runtime_class_init_export
+Turn On Before-Car Objects         CurrentDayManager  Rpc_TurnOnBeforeCarObjs              250  GameObject.SetActive  | str: il2cpp_runtime_class_init_export
+Turn On After-Car Objects          CurrentDayManager  Rpc_TurnOnAfterCarObjs               260  Interactable.ChangeInteractableStatus GameObject.SetActive  | str: il2cpp_runtime_class_init_export
+Disable Dumpster Monster           StoreManager       Rpc_DisableDumpsterMonster           252  GameObject.SetActive  | str: il2cpp_runtime_class_init_export
+Destroy Tutorial Stuff             StoreManager       Rpc_DestroyTutorialStuff             360  GameObject.SetActive Object.Destroy  | str: il2cpp_runtime_class_init_export
+Start Hazard Lights                StoreManager       Rpc_StartHazardLights                852  NetworkObject.get_HasStateAuthority EventManager.Rpc_DisableEODBus MonoBehaviour.Invoke GameObject.SetActive SaveManager.get_CurrentLanguageInt TMP_Text.set_font JSONAccess.GetMiscText String.Replace  | str: il2cpp_runtime_class_init_export AllBrowsingNPCsRunAway imul ecx Hunt Warning 3 Hunt Warning 2
+Teleport Me To Store               StoreManager       Rpc_TeleportPlayerToStore            331  TeleportPlayer.RequestTeleport  | str: il2cpp_runtime_class_init_export
+Exit Cutscene                      StoreManager       Rpc_ExitCutscene                     686  GameObject.SetActive Behaviour.set_enabled InventoryManager.UnpauseInventory  | str: il2cpp_runtime_class_init_export
+End Hunt                           StoreManager       Rpc_EndHunt                         1034  GameObject.SetActive MonoBehaviour.Invoke rax NetworkObject.get_HasStateAuthority PlayerManager.Rpc_ChangeHuntLight GameObject.FindGameObjectsWithTag FusionNetworkManager.DestroyItem Behaviour.set_enabled PlayerManager.TurnOffAllDetectionArrows  | str: il2cpp_runtime_class_init_export Unpause Enemy BreachCompensation CompleteOccurrence
+[!] Start Final Sequence (ends the game) StoreManager       Rpc_StartFinalSequence               252  SpeakingManager.ClickNext GameObject.SetActive  | str: il2cpp_runtime_class_init_export

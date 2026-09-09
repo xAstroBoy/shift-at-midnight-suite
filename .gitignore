@@ -1,0 +1,15 @@
+# Build output
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# Other people's mod binaries, kept locally so the originals can be put back.
+# Not ours to redistribute.
+_replaced-mods-backup/
+
+# Nothing from the game itself belongs in here.
+*.dll
+*.exe
+*.pdb

@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>ShiftAtMidnightSuite.Loader</AssemblyName>
+    <RootNamespace>ShiftAtMidnightSuite.Loader</RootNamespace>
+    <Version>1.0.0</Version>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <GameDir>$(MSBuildThisFileDirectory)..\..\</GameDir>
+    <MlDir>$(GameDir)MelonLoader\net6\</MlDir>
+    <Il2CppDir>$(GameDir)MelonLoader\Il2CppAssemblies\</Il2CppDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="MelonLoader"><HintPath>$(MlDir)MelonLoader.dll</HintPath></Reference>
+    <Reference Include="UniverseLib"><HintPath>$(GameDir)UserLibs\UniverseLib.ML.IL2CPP.Interop.dll</HintPath></Reference>
+    <Reference Include="Il2CppInterop.Runtime"><HintPath>$(MlDir)Il2CppInterop.Runtime.dll</HintPath></Reference>
+    <Reference Include="UnityEngine"><HintPath>$(Il2CppDir)UnityEngine.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(Il2CppDir)UnityEngine.CoreModule.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.InputLegacyModule"><HintPath>$(Il2CppDir)UnityEngine.InputLegacyModule.dll</HintPath></Reference>
+    <Reference Include="Il2Cppmscorlib"><HintPath>$(Il2CppDir)Il2Cppmscorlib.dll</HintPath></Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Update="@(Reference)"><Private>false</Private></Reference>
+  </ItemGroup>
+
+</Project>
